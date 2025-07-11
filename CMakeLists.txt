@@ -30,8 +30,10 @@ else()
     )
 endif()
 
+add_subdirectory(deps/glad)
 add_subdirectory(deps/glfw)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    glad
     glfw
 )
