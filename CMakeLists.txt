@@ -3,6 +3,8 @@ project(quadcraft VERSION 0.1.0 LANGUAGES C)
 
 add_executable(${PROJECT_NAME}
     src/main.c
+    src/utils.c
+    src/utils.h
 )
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 99)
