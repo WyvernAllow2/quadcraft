@@ -6,6 +6,8 @@ add_executable(${PROJECT_NAME}
     src/block_type.h
     src/camera.c
     src/camera.h
+    src/chunk.c
+    src/chunk.h
     src/direction.c
     src/direction.h
     src/main.c
