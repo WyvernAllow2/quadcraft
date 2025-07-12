@@ -86,6 +86,7 @@ static GLuint compile_program_from_files(const char *vert_filename, const char *
 
 typedef struct Block_Vertex {
     Vec3 position;
+    Vec3 normal;
 } Block_Vertex;
 
 static Camera camera;
@@ -184,6 +185,7 @@ static void mesh_block(const Chunk *chunk, iVec3 pos) {
 
     for (Direction dir = 0; dir < DIRECTION_COUNT; dir++) {
         iVec3 normal = direction_to_ivec3(dir);
+        Vec3 fnormal = direction_to_vec3(dir);
         Block_Type neighbor = chunk_get_block(chunk, ivec3_add(pos, normal));
         const Block_Properties *neighbor_properties = get_block_properties(neighbor);
 
@@ -192,18 +194,22 @@ static void mesh_block(const Chunk *chunk, iVec3 pos) {
         if (neighbor_properties->is_transparent) {
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][0]),
+                .normal = fnormal,
             };
 
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][1]),
+                .normal = fnormal,
             };
 
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][2]),
+                .normal = fnormal,
             };
 
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][3]),
+                .normal = fnormal,
             };
         }
     }
@@ -302,6 +308,11 @@ int main(void) {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
                           (void *)offsetof(Block_Vertex, position));
+
+    /* Normal attribute */
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
+                          (void *)offsetof(Block_Vertex, normal));
 
     GLuint program = compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag");
     if (!program) {
