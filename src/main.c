@@ -7,6 +7,7 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
+#include <stb_image.h>
 
 #include "block_type.h"
 #include "camera.h"
@@ -87,6 +88,7 @@ static GLuint compile_program_from_files(const char *vert_filename, const char *
 typedef struct Block_Vertex {
     Vec3 position;
     Vec3 normal;
+    float layer;
 } Block_Vertex;
 
 static Camera camera;
@@ -183,6 +185,8 @@ static void mesh_block(const Chunk *chunk, iVec3 pos) {
         return;
     }
 
+    const Block_Properties *properties = get_block_properties(current_block);
+
     for (Direction dir = 0; dir < DIRECTION_COUNT; dir++) {
         iVec3 normal = direction_to_ivec3(dir);
         Vec3 fnormal = direction_to_vec3(dir);
@@ -195,21 +199,25 @@ static void mesh_block(const Chunk *chunk, iVec3 pos) {
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][0]),
                 .normal = fnormal,
+                .layer = properties->face_textures[dir],
             };
 
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][1]),
                 .normal = fnormal,
+                .layer = properties->face_textures[dir],
             };
 
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][2]),
                 .normal = fnormal,
+                .layer = properties->face_textures[dir],
             };
 
             vertices[vertex_count++] = (Block_Vertex){
                 .position = vec3_add(fpos, FACE_VERTEX_TABLE[dir][3]),
                 .normal = fnormal,
+                .layer = properties->face_textures[dir],
             };
         }
     }
@@ -229,6 +237,50 @@ static void mesh_chunk(const Chunk *chunk) {
             }
         }
     }
+}
+
+static GLuint load_texture_array(void) {
+    GLuint texture_array;
+    glGenTextures(1, &texture_array);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, texture_array);
+
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, TEXTURE_WIDTH, TEXTURE_HEIGHT, TEXTURE_ID_COUNT,
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    stbi_set_flip_vertically_on_load(true);
+
+    for (int i = 0; i < TEXTURE_ID_COUNT; ++i) {
+        int width, height, channels;
+        const char *path = get_texture_path((Texture_ID)i);
+
+        unsigned char *data = stbi_load(path, &width, &height, &channels, STBI_rgb_alpha);
+        if (!data) {
+            fprintf(stderr, "Failed to load texture: %s\n", path);
+            continue;
+        }
+
+        if (width != TEXTURE_WIDTH || height != TEXTURE_HEIGHT) {
+            fprintf(stderr, "Texture %s has incorrect size (%dx%d), expected %dx%d\n", path, width,
+                    height, TEXTURE_WIDTH, TEXTURE_HEIGHT);
+            stbi_image_free(data);
+            continue;
+        }
+
+        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, TEXTURE_WIDTH, TEXTURE_HEIGHT, 1, GL_RGBA,
+                        GL_UNSIGNED_BYTE, data);
+
+        stbi_image_free(data);
+    }
+
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    return texture_array;
 }
 
 int main(void) {
@@ -270,12 +322,16 @@ int main(void) {
     for (int z = 0; z < CHUNK_SIZE_Z; z++) {
         for (int y = 0; y < CHUNK_SIZE_Y; y++) {
             for (int x = 0; x < CHUNK_SIZE_X; x++) {
-                chunk.blocks[chunk_index((iVec3){x, y, z})] = BLOCK_DIRT;
+                if (y < 8) {
+                    chunk.blocks[chunk_index((iVec3){x, y, z})] = BLOCK_DIRT;
+                } else if (y == 8) {
+                    chunk.blocks[chunk_index((iVec3){x, y, z})] = BLOCK_GRASS;
+                }
             }
         }
     }
 
-    mesh_chunk(&chunk);
+    bool dirty = true;
 
     uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
     uint32_t offset = 0;
@@ -297,7 +353,7 @@ int main(void) {
     GLuint vbo;
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Block_Vertex) * vertex_count, vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Block_Vertex) * MAX_VERTICES, NULL, GL_STATIC_DRAW);
 
     GLuint ebo;
     glGenBuffers(1, &ebo);
@@ -314,11 +370,18 @@ int main(void) {
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
                           (void *)offsetof(Block_Vertex, normal));
 
+    /* Layer attribute */
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
+                          (void *)offsetof(Block_Vertex, layer));
+
     GLuint program = compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag");
     if (!program) {
         fprintf(stderr, "compile_program_from_files failed\n");
         return EXIT_FAILURE;
     }
+
+    GLuint texture_array = load_texture_array();
 
     camera = (Camera){
         .position = {0.0f, 0.0f, 0.0f},
@@ -358,10 +421,40 @@ int main(void) {
             move_dir = vec3_sub(move_dir, camera.right);
         }
 
-        camera.position = vec3_add(camera.position,
-                                   vec3_scale(vec3_normalize(move_dir), delta_time * CAMERA_SPEED));
+        move_dir = vec3_normalize(move_dir);
+
+        camera.position =
+            vec3_add(camera.position, vec3_scale(move_dir, delta_time * CAMERA_SPEED));
 
         camera_update(&camera);
+
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_1)) {
+            int x = floorf(camera.position.x + camera.forward.x);
+            int y = floorf(camera.position.y + camera.forward.y);
+            int z = floorf(camera.position.z + camera.forward.z);
+            iVec3 pos = {x, y, z};
+            chunk_set_block(&chunk, pos, BLOCK_AIR);
+            dirty = true;
+        }
+
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_2)) {
+            int x = floorf(camera.position.x + camera.forward.x);
+            int y = floorf(camera.position.y + camera.forward.y);
+            int z = floorf(camera.position.z + camera.forward.z);
+            iVec3 pos = {x, y, z};
+            chunk_set_block(&chunk, pos, BLOCK_PLANK);
+            dirty = true;
+        }
+
+        if (dirty) {
+            mesh_chunk(&chunk);
+
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(Block_Vertex) * vertex_count, vertices,
+                         GL_STATIC_DRAW);
+
+            dirty = false;
+        }
 
         glClearColor(0.39, 0.58, 0.93, 1.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -369,6 +462,10 @@ int main(void) {
         glUseProgram(program);
         glUniformMatrix4fv(glGetUniformLocation(program, "u_view"), 1, GL_FALSE, camera.view.data);
         glUniformMatrix4fv(glGetUniformLocation(program, "u_proj"), 1, GL_FALSE, camera.proj.data);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, texture_array);
+        glUniform1i(glGetUniformLocation(program, "u_texture_array"), 0);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, (vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL);
