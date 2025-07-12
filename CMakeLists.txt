@@ -44,10 +44,12 @@ endif()
 
 add_subdirectory(deps/glad)
 add_subdirectory(deps/glfw)
+add_subdirectory(deps/stb_image)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glad
     glfw
+    stb_image
 )
 
 add_custom_target(copy_assets
