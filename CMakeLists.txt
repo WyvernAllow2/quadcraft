@@ -13,6 +13,8 @@ add_executable(${PROJECT_NAME}
     src/main.c
     src/math3d.c
     src/math3d.h
+    src/textures.c
+    src/textures.h
     src/utils.c
     src/utils.h
 )
