@@ -6,13 +6,15 @@
 #include "block_type.h"
 #include "math3d.h"
 
-#define CHUNK_SIZE_X (16)
-#define CHUNK_SIZE_Y (16)
-#define CHUNK_SIZE_Z (16)
+#define CHUNK_SIZE_X (32)
+#define CHUNK_SIZE_Y (32)
+#define CHUNK_SIZE_Z (32)
 #define CHUNK_VOLUME (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z)
 
 typedef struct Chunk {
     uint8_t blocks[CHUNK_VOLUME];
+
+    bool dirty;
 } Chunk;
 
 bool chunk_in_bounds(iVec3 local_pos);

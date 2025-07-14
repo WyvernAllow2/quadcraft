@@ -26,5 +26,11 @@ void chunk_set_block(Chunk *chunk, iVec3 local_pos, Block_Type new_block) {
         return;
     }
 
+    Block_Type old_block = chunk_get_block(chunk, local_pos);
+    if (old_block == new_block) {
+        return;
+    }
+
     chunk->blocks[chunk_index(local_pos)] = new_block;
+    chunk->dirty = true;
 }
