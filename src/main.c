@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "direction.h"
 
@@ -13,6 +14,7 @@
 #include "camera.h"
 #include "chunk.h"
 #include "math3d.h"
+#include "mesh_allocator.h"
 #include "utils.h"
 
 static GLuint compile_shader(const char *source, GLenum type) {
@@ -85,12 +87,6 @@ static GLuint compile_program_from_files(const char *vert_filename, const char *
     return compile_program(vert, frag);
 }
 
-typedef struct Block_Vertex {
-    Vec3 position;
-    Vec3 normal;
-    float layer;
-} Block_Vertex;
-
 static Camera camera;
 static const float CAMERA_SPEED = 5.0f;
 static const float MOUSE_SENSITIVITY = 0.25f;
@@ -122,12 +118,18 @@ static void error_callback(int error_code, const char *description) {
     fprintf(stderr, "GLFW: %s\n", description);
 }
 
+Block_Type place_block = BLOCK_DIRT;
+
 static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
     (void)scancode;
     (void)mods;
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+
+    if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9) {
+        place_block = key - GLFW_KEY_0;
     }
 }
 
@@ -318,62 +320,27 @@ int main(void) {
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetCursorPosCallback(window, cursor_callback);
 
-    Chunk chunk = {0};
+    Chunk *chunk = malloc(sizeof(Chunk));
+    chunk->mesh.vertex_count = 0;
+    chunk->mesh.start = 0;
+    memset(chunk->blocks, 0, CHUNK_VOLUME);
+
     for (int z = 0; z < CHUNK_SIZE_Z; z++) {
         for (int y = 0; y < CHUNK_SIZE_Y; y++) {
             for (int x = 0; x < CHUNK_SIZE_X; x++) {
                 if (y < 8) {
-                    chunk.blocks[chunk_index((iVec3){x, y, z})] = BLOCK_DIRT;
+                    chunk->blocks[chunk_index((iVec3){x, y, z})] = BLOCK_DIRT;
                 } else if (y == 8) {
-                    chunk.blocks[chunk_index((iVec3){x, y, z})] = BLOCK_GRASS;
+                    chunk->blocks[chunk_index((iVec3){x, y, z})] = BLOCK_GRASS;
                 }
             }
         }
     }
 
-    bool dirty = true;
+    chunk->dirty = true;
 
-    uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
-    uint32_t offset = 0;
-    for (uint32_t i = 0; i < MAX_INDICES; i += 6) {
-        indices[i + 0] = offset + 3;
-        indices[i + 1] = offset + 2;
-        indices[i + 2] = offset + 1;
-        indices[i + 3] = offset + 3;
-        indices[i + 4] = offset + 1;
-        indices[i + 5] = offset + 0;
-
-        offset += 4;
-    }
-
-    GLuint vao;
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-
-    GLuint vbo;
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Block_Vertex) * MAX_VERTICES, NULL, GL_STATIC_DRAW);
-
-    GLuint ebo;
-    glGenBuffers(1, &ebo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * MAX_INDICES, indices, GL_STATIC_DRAW);
-
-    /* Position attribute */
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
-                          (void *)offsetof(Block_Vertex, position));
-
-    /* Normal attribute */
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
-                          (void *)offsetof(Block_Vertex, normal));
-
-    /* Layer attribute */
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Block_Vertex),
-                          (void *)offsetof(Block_Vertex, layer));
+    Mesh_Allocator allocator;
+    mesh_allocator_init(&allocator, MAX_VERTICES * 5);
 
     GLuint program = compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag");
     if (!program) {
@@ -433,8 +400,7 @@ int main(void) {
             int y = floorf(camera.position.y + camera.forward.y);
             int z = floorf(camera.position.z + camera.forward.z);
             iVec3 pos = {x, y, z};
-            chunk_set_block(&chunk, pos, BLOCK_AIR);
-            dirty = true;
+            chunk_set_block(chunk, pos, BLOCK_AIR);
         }
 
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_2)) {
@@ -442,18 +408,14 @@ int main(void) {
             int y = floorf(camera.position.y + camera.forward.y);
             int z = floorf(camera.position.z + camera.forward.z);
             iVec3 pos = {x, y, z};
-            chunk_set_block(&chunk, pos, BLOCK_PLANK);
-            dirty = true;
+            chunk_set_block(chunk, pos, place_block);
         }
 
-        if (dirty) {
-            mesh_chunk(&chunk);
+        if (chunk->dirty) {
+            mesh_chunk(chunk);
+            upload_mesh(&allocator, &chunk->mesh, vertices, vertex_count);
 
-            glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(Block_Vertex) * vertex_count, vertices,
-                         GL_STATIC_DRAW);
-
-            dirty = false;
+            fprintf(stderr, "%zu, %zu\n", chunk->mesh.start, chunk->mesh.vertex_count);
         }
 
         glClearColor(0.39, 0.58, 0.93, 1.0);
@@ -462,13 +424,17 @@ int main(void) {
         glUseProgram(program);
         glUniformMatrix4fv(glGetUniformLocation(program, "u_view"), 1, GL_FALSE, camera.view.data);
         glUniformMatrix4fv(glGetUniformLocation(program, "u_proj"), 1, GL_FALSE, camera.proj.data);
+        glUniform3f(glGetUniformLocation(program, "u_camera_position"), camera.position.x,
+                    camera.position.y, camera.position.z);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D_ARRAY, texture_array);
         glUniform1i(glGetUniformLocation(program, "u_texture_array"), 0);
 
-        glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, (vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL);
+        glBindVertexArray(allocator.vao);
+
+        glDrawElementsBaseVertex(GL_TRIANGLES, (vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL,
+                                 (int)chunk->mesh.start);
 
         glUseProgram(0);
 
