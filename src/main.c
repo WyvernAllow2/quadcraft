@@ -87,6 +87,39 @@ static GLuint compile_program_from_files(const char *vert_filename, const char *
     return compile_program(vert, frag);
 }
 
+static GLuint compile_compute_program(const char *filename) {
+    const char *source = slurp_file_str(filename);
+    if (!source) {
+        fprintf(stderr, "Failed to load shader source: %s\n", filename);
+        return 0;
+    }
+
+    GLuint shader = compile_shader(source, GL_COMPUTE_SHADER);
+    if (!shader) {
+        fprintf(stderr, "Failed to compile shader\n");
+        return 0;
+    }
+
+    GLuint program = glCreateProgram();
+    glAttachShader(program, shader);
+    glLinkProgram(program);
+
+    glDeleteShader(shader);
+
+    GLint did_link;
+    glGetProgramiv(program, GL_LINK_STATUS, &did_link);
+    if (!did_link) {
+        char info_log[256];
+        glGetProgramInfoLog(program, sizeof(info_log), NULL, info_log);
+        fprintf(stderr, "Shader linking failed: %s\n", info_log);
+
+        glDeleteProgram(program);
+        return 0;
+    }
+
+    return program;
+}
+
 static Camera camera;
 static const float CAMERA_SPEED = 5.0f;
 static const float MOUSE_SENSITIVITY = 0.25f;
@@ -285,6 +318,52 @@ static GLuint load_texture_array(void) {
     return texture_array;
 }
 
+typedef struct G_Buffer {
+    GLuint fbo;
+    GLuint diffuse;
+    GLuint normal;
+    GLuint depth;
+} G_Buffer;
+
+static void init_gbuffer(G_Buffer *buffer, int width, int height) {
+    glGenFramebuffers(1, &buffer->fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, buffer->fbo);
+
+    glGenTextures(1, &buffer->diffuse);
+    glBindTexture(GL_TEXTURE_2D, buffer->diffuse);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buffer->diffuse, 0);
+
+    glGenTextures(1, &buffer->normal);
+    glBindTexture(GL_TEXTURE_2D, buffer->normal);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, buffer->normal, 0);
+
+    glGenTextures(1, &buffer->depth);
+    glBindTexture(GL_TEXTURE_2D, buffer->depth);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT,
+                 GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, buffer->depth, 0);
+
+    GLenum draw_buffers[2] = {
+        GL_COLOR_ATTACHMENT0,
+        GL_COLOR_ATTACHMENT1,
+    };
+    glDrawBuffers(2, draw_buffers);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "Framebuffer not complete!\n");
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 int main(void) {
     glfwSetErrorCallback(error_callback);
     if (!glfwInit()) {
@@ -300,7 +379,7 @@ int main(void) {
     glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
     glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     GLFWwindow *window = glfwCreateWindow(mode->width, mode->height, "Quadcraft", monitor, NULL);
@@ -360,8 +439,38 @@ int main(void) {
         .far = 1000.0f,
     };
 
+    G_Buffer gbuffer;
+    init_gbuffer(&gbuffer, mode->width, mode->height);
+
+    GLuint raytrace_program = compile_compute_program("res/shaders/raytrace.comp");
+    if (!raytrace_program) {
+        fprintf(stderr, "compile_compute_program failed\n");
+        return EXIT_FAILURE;
+    }
+
+    GLuint screen_texture;
+    glGenTextures(1, &screen_texture);
+    glBindTexture(GL_TEXTURE_2D, screen_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, mode->width, mode->height);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    GLuint composite =
+        compile_program_from_files("res/shaders/composite.vert", "res/shaders/composite.frag");
+    if (!composite) {
+        fprintf(stderr, "compile_program_from_files failed\n");
+        return EXIT_FAILURE;
+    }
+
+    GLuint composite_vao;
+    glGenVertexArrays(1, &composite_vao);
+
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
 
     float current_time = (float)glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
@@ -416,10 +525,14 @@ int main(void) {
             upload_mesh(&allocator, &chunk->mesh, vertices, vertex_count);
 
             fprintf(stderr, "%zu, %zu\n", chunk->mesh.start, chunk->mesh.vertex_count);
+            chunk->dirty = false;
         }
 
-        glClearColor(0.39, 0.58, 0.93, 1.0);
+        /* Rasterization pass */
+        glBindFramebuffer(GL_FRAMEBUFFER, gbuffer.fbo);
+        glClearColor(0.0, 0.0, 0.0, 0.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_CULL_FACE);
 
         glUseProgram(program);
         glUniformMatrix4fv(glGetUniformLocation(program, "u_view"), 1, GL_FALSE, camera.view.data);
@@ -435,6 +548,46 @@ int main(void) {
 
         glDrawElementsBaseVertex(GL_TRIANGLES, (vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL,
                                  (int)chunk->mesh.start);
+
+        glUseProgram(0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        /* Raytracing pass */
+        glUseProgram(raytrace_program);
+        glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, gbuffer.diffuse);
+        glUniform1i(glGetUniformLocation(raytrace_program, "g_diffuse"), 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, gbuffer.normal);
+        glUniform1i(glGetUniformLocation(raytrace_program, "g_normal"), 1);
+
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, gbuffer.depth);
+        glUniform1i(glGetUniformLocation(raytrace_program, "g_depth"), 2);
+
+#define DIV_UP(x, y) (((x) + (y) - 1) / (y))
+        glBindImageTexture(0, screen_texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+        glDispatchCompute(DIV_UP(mode->width, 8), DIV_UP(mode->height, 4), 1);
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+        glUseProgram(0);
+
+        // /* Composite pass */
+        glDisable(GL_CULL_FACE);
+
+        glClearColor(0.0, 0.0, 0.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glUseProgram(composite);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, screen_texture);
+        glUniform1i(glGetUniformLocation(composite, "u_texture"), 0);
+
+        glBindVertexArray(composite_vao);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         glUseProgram(0);
 
