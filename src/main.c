@@ -10,6 +10,20 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
+#define CAMERA_SPEED 16.0f
+#define MOUSE_SENSITIVITY 0.125f
+
+typedef struct Camera {
+    Vec3 position;
+    float pitch;
+    float yaw;
+
+    float fov;
+    float aspect;
+    float znear;
+    float zfar;
+} Camera;
+
 typedef struct Vertex {
     Vec3 position;
 } Vertex;
@@ -24,6 +38,11 @@ struct {
     GLuint vao;
     GLuint vbo;
     GLuint ebo;
+
+    Camera camera;
+    float old_mouse_x;
+    float old_mouse_y;
+    bool first_mouse;
 } state;
 
 static void glfw_error_callback(int error_code, const char *description) {
@@ -88,7 +107,35 @@ static void window_size_callback(GLFWwindow *window, int width, int height) {
 
     state.window_w = width;
     state.window_h = height;
+    state.camera.aspect = state.window_w / (float)state.window_h;
     glViewport(0, 0, state.window_w, state.window_h);
+}
+
+static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
+    (void)window;
+    assert(window == state.window);
+
+    if (state.first_mouse) {
+        state.old_mouse_x = xpos;
+        state.old_mouse_y = ypos;
+        state.first_mouse = false;
+    }
+
+    float delta_x = xpos - state.old_mouse_x;
+    float delta_y = ypos - state.old_mouse_y;
+
+    state.old_mouse_x = xpos;
+    state.old_mouse_y = ypos;
+
+    state.camera.yaw += to_radians(delta_x * MOUSE_SENSITIVITY);
+    state.camera.pitch += to_radians(-delta_y * MOUSE_SENSITIVITY);
+
+    state.camera.pitch = clamp(state.camera.pitch, -HALF_PI + 1e-6f, HALF_PI - 1e-6);
+    state.camera.yaw = fmodf(state.camera.yaw + TAU, TAU);
+}
+
+static void uniform_mat4(GLuint program, const char *name, const Mat4 *value) {
+    glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, value->data);
 }
 
 int main(void) {
@@ -133,6 +180,13 @@ int main(void) {
 
     glfwSetWindowSizeCallback(state.window, window_size_callback);
 
+    state.first_mouse = true;
+    glfwSetInputMode(state.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetCursorPosCallback(state.window, cursor_pos_callback);
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(state.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
+
     state.shader = compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag");
     if (!state.shader) {
         fprintf(stderr, "compile_program_from_files() failed\n");
@@ -167,6 +221,16 @@ int main(void) {
 
     glBindVertexArray(0);
 
+    state.camera = (Camera){
+        .position = {0, 0, 0},
+        .pitch = 0.0f,
+        .yaw = to_radians(90.0f),
+        .fov = to_radians(90.0f),
+        .aspect = mode->width / (float)mode->height,
+        .znear = 0.1f,
+        .zfar = 500.0f,
+    };
+
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
@@ -175,11 +239,50 @@ int main(void) {
         float delta_time = new_time - old_time;
         old_time = new_time;
 
+        const Vec3 cam_forward = vec3_normalize((Vec3){
+            .x = cosf(state.camera.yaw) * cosf(state.camera.pitch),
+            .y = sinf(state.camera.pitch),
+            .z = sinf(state.camera.yaw) * cosf(state.camera.pitch),
+        });
+
+        const Vec3 cam_right = vec3_normalize(vec3_cross(cam_forward, (Vec3){0, 1, 0}));
+        const Vec3 cam_up = vec3_normalize(vec3_cross(cam_right, cam_forward));
+
+        Vec3 wish_dir = {0};
+        if (glfwGetKey(state.window, GLFW_KEY_W)) {
+            wish_dir = vec3_add(wish_dir, cam_forward);
+        }
+
+        if (glfwGetKey(state.window, GLFW_KEY_S)) {
+            wish_dir = vec3_sub(wish_dir, cam_forward);
+        }
+
+        if (glfwGetKey(state.window, GLFW_KEY_D)) {
+            wish_dir = vec3_add(wish_dir, cam_right);
+        }
+
+        if (glfwGetKey(state.window, GLFW_KEY_A)) {
+            wish_dir = vec3_sub(wish_dir, cam_right);
+        }
+
+        state.camera.position = vec3_add(
+            state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
+
+        Mat4 view;
+        mat4_look_at(&view, state.camera.position, vec3_add(state.camera.position, cam_forward),
+                     cam_up);
+        Mat4 proj;
+        mat4_perspective(&proj, state.camera.fov, state.camera.aspect, state.camera.znear,
+                         state.camera.zfar);
+
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glBindVertexArray(state.vao);
         glUseProgram(state.shader);
+
+        uniform_mat4(state.shader, "u_view", &view);
+        uniform_mat4(state.shader, "u_proj", &proj);
 
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, NULL);
 
