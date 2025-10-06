@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 project(quadcraft VERSION 0.1.0 LANGUAGES C)
 
 add_executable(${PROJECT_NAME}
+    src/blocks.c
+    src/blocks.h
     src/direction.c
     src/direction.h
     src/main.c

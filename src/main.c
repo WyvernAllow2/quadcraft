@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "blocks.h"
+#include "direction.h"
 #include "math3d.h"
 #include "utils.h"
 
@@ -10,7 +12,7 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
-#define CAMERA_SPEED 16.0f
+#define CAMERA_SPEED 4.0f
 #define MOUSE_SENSITIVITY 0.125f
 
 typedef struct Camera {
@@ -26,6 +28,7 @@ typedef struct Camera {
 
 typedef struct Vertex {
     Vec3 position;
+    Vec3 normal;
 } Vertex;
 
 struct {
@@ -138,6 +141,137 @@ static void uniform_mat4(GLuint program, const char *name, const Mat4 *value) {
     glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, value->data);
 }
 
+#define CHUNK_SIZE 32
+#define CHUNK_VOLUME (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)
+
+typedef struct Chunk {
+    uint8_t blocks[CHUNK_VOLUME];
+    bool is_dirty;
+} Chunk;
+
+static bool in_chunk_bounds(iVec3 local_coords) {
+    return local_coords.x >= 0 && local_coords.y >= 0 && local_coords.z >= 0 &&
+           local_coords.x < CHUNK_SIZE && local_coords.y < CHUNK_SIZE &&
+           local_coords.z < CHUNK_SIZE;
+}
+
+static int get_block_index(iVec3 local_coords) {
+    int x = local_coords.x;
+    int y = local_coords.y;
+    int z = local_coords.z;
+    return x + CHUNK_SIZE * (y + CHUNK_SIZE * z);
+}
+
+static Block_Type get_block(const Chunk *chunk, iVec3 coord) {
+    if (!in_chunk_bounds(coord)) {
+        return BLOCK_AIR;
+    }
+
+    return chunk->blocks[get_block_index(coord)];
+}
+
+static void set_block(Chunk *chunk, iVec3 coord, Block_Type type) {
+    if (!in_chunk_bounds(coord)) {
+        return;
+    }
+
+    chunk->blocks[get_block_index(coord)] = type;
+}
+
+static bool is_transparent(const Chunk *chunk, iVec3 coord) {
+    Block_Type block = get_block(chunk, coord);
+    return get_block_properties(block)->is_transparent;
+}
+
+/* The maximum number of quads a chunk could possibly have. Assuming the worse-case scenario of a 3D
+   checkerboard pattern, then half the blocks would have all 6 faces exposed.
+*/
+#define MAX_QUADS ((CHUNK_VOLUME / 2) * 6)
+#define MAX_VERTS (MAX_QUADS * 4)
+#define MAX_INDICES (MAX_QUADS * 6)
+
+static const Vec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
+    [DIR_POSITIVE_X] =
+        {
+            {1, 0, 0},
+            {1, 1, 0},
+            {1, 1, 1},
+            {1, 0, 1},
+        },
+    [DIR_POSITIVE_Y] =
+        {
+
+            {1, 1, 1},
+            {1, 1, 0},
+            {0, 1, 0},
+            {0, 1, 1},
+        },
+    [DIR_POSITIVE_Z] =
+        {
+
+            {0, 0, 1},
+            {1, 0, 1},
+            {1, 1, 1},
+            {0, 1, 1},
+
+        },
+    [DIR_NEGATIVE_X] =
+        {
+            {0, 0, 1},
+            {0, 1, 1},
+            {0, 1, 0},
+            {0, 0, 0},
+        },
+    [DIR_NEGATIVE_Y] =
+        {
+
+            {0, 0, 1},
+            {0, 0, 0},
+            {1, 0, 0},
+            {1, 0, 1},
+
+        },
+    [DIR_NEGATIVE_Z] =
+        {
+            {0, 1, 0},
+            {1, 1, 0},
+            {1, 0, 0},
+            {0, 0, 0},
+        },
+};
+
+static void mesh_chunk(const Chunk *chunk, Vertex *vertices, size_t *vertex_count) {
+    *vertex_count = 0;
+
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                iVec3 coord = {x, y, z};
+                Vec3 position = {x, y, z};
+
+                int index = get_block_index(coord);
+                if (chunk->blocks[index] != BLOCK_AIR) {
+                    for (Direction d = 0; d < DIRECTION_COUNT; d++) {
+                        iVec3 normal = direction_to_ivec3(d);
+                        Vec3 fnormal = vec3_from_ivec3(normal);
+
+                        if (is_transparent(chunk, ivec3_add(coord, normal))) {
+                            for (size_t i = 0; i < 4; i++) {
+                                vertices[*vertex_count + i] = (Vertex){
+                                    .position = vec3_add(position, FACE_VERTICES[d][i]),
+                                    .normal = fnormal,
+                                };
+                            }
+
+                            *vertex_count += 4;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 int main(void) {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -193,14 +327,30 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    Vertex vertices[] = {
-        {{0.5f, 0.5f, 0.0f}},
-        {{0.5f, -0.5f, 0.0f}},
-        {{-0.5f, -0.5f, 0.0f}},
-        {{-0.5f, 0.5f, 0.0f}},
-    };
+    Chunk chunk;
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                int index = get_block_index((iVec3){x, y, z});
+                chunk.blocks[index] = BLOCK_DIRT;
+            }
+        }
+    }
 
-    uint32_t indices[] = {0, 1, 3, 1, 2, 3};
+    chunk.is_dirty = true;
+
+    Vertex *vertices = malloc(sizeof(Vertex) * MAX_VERTS);
+    size_t vertex_count = 0;
+
+    uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
+    for (uint32_t i = 0; i < MAX_QUADS; i++) {
+        indices[i * 6 + 0] = 0 + i * 4;
+        indices[i * 6 + 1] = 1 + i * 4;
+        indices[i * 6 + 2] = 3 + i * 4;
+        indices[i * 6 + 3] = 1 + i * 4;
+        indices[i * 6 + 4] = 2 + i * 4;
+        indices[i * 6 + 5] = 3 + i * 4;
+    }
 
     glGenVertexArrays(1, &state.vao);
     glGenBuffers(1, &state.vbo);
@@ -209,27 +359,36 @@ int main(void) {
     glBindVertexArray(state.vao);
 
     glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-    glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(Vertex), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, MAX_VERTS * sizeof(Vertex), NULL, GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_INDICES * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+
+    const void *position_offset = (const void *)offsetof(Vertex, position);
+    const void *normal_offset = (const void *)offsetof(Vertex, normal);
 
     /* Position attribute */
     glEnableVertexAttribArray(0);
-    const void *position_offset = offsetof(Vertex, position);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), position_offset);
+
+    /* Normal attribute */
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), normal_offset);
 
     glBindVertexArray(0);
 
     state.camera = (Camera){
         .position = {0, 0, 0},
         .pitch = 0.0f,
-        .yaw = to_radians(90.0f),
+        .yaw = -to_radians(90.0f),
         .fov = to_radians(90.0f),
         .aspect = mode->width / (float)mode->height,
         .znear = 0.1f,
         .zfar = 500.0f,
     };
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
 
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
@@ -265,8 +424,25 @@ int main(void) {
             wish_dir = vec3_sub(wish_dir, cam_right);
         }
 
+        if (glfwGetKey(state.window, GLFW_KEY_SPACE)) {
+            wish_dir.y += 1;
+        }
+
+        if (glfwGetKey(state.window, GLFW_KEY_LEFT_SHIFT)) {
+            wish_dir.y -= 1;
+        }
+
         state.camera.position = vec3_add(
             state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
+
+        if (chunk.is_dirty) {
+            mesh_chunk(&chunk, vertices, &vertex_count);
+
+            glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * vertex_count, vertices);
+
+            chunk.is_dirty = false;
+        }
 
         Mat4 view;
         mat4_look_at(&view, state.camera.position, vec3_add(state.camera.position, cam_forward),
@@ -276,7 +452,7 @@ int main(void) {
                          state.camera.zfar);
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glBindVertexArray(state.vao);
         glUseProgram(state.shader);
@@ -284,7 +460,7 @@ int main(void) {
         uniform_mat4(state.shader, "u_view", &view);
         uniform_mat4(state.shader, "u_proj", &proj);
 
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, NULL);
+        glDrawElements(GL_TRIANGLES, (vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL);
 
         glUseProgram(0);
         glBindVertexArray(0);
