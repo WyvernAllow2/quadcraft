@@ -3,15 +3,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "math3d.h"
+#include "utils.h"
+
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
+
+typedef struct Vertex {
+    Vec3 position;
+} Vertex;
 
 struct {
     int window_w;
     int window_h;
 
     GLFWwindow *window;
+
+    GLuint shader;
+    GLuint vao;
+    GLuint vbo;
+    GLuint ebo;
 } state;
 
 static void glfw_error_callback(int error_code, const char *description) {
@@ -121,6 +133,40 @@ int main(void) {
 
     glfwSetWindowSizeCallback(state.window, window_size_callback);
 
+    state.shader = compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag");
+    if (!state.shader) {
+        fprintf(stderr, "compile_program_from_files() failed\n");
+        return EXIT_FAILURE;
+    }
+
+    Vertex vertices[] = {
+        {{0.5f, 0.5f, 0.0f}},
+        {{0.5f, -0.5f, 0.0f}},
+        {{-0.5f, -0.5f, 0.0f}},
+        {{-0.5f, 0.5f, 0.0f}},
+    };
+
+    uint32_t indices[] = {0, 1, 3, 1, 2, 3};
+
+    glGenVertexArrays(1, &state.vao);
+    glGenBuffers(1, &state.vbo);
+    glGenBuffers(1, &state.ebo);
+
+    glBindVertexArray(state.vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
+    glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(Vertex), vertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+
+    /* Position attribute */
+    glEnableVertexAttribArray(0);
+    const void *position_offset = offsetof(Vertex, position);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), position_offset);
+
+    glBindVertexArray(0);
+
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
@@ -132,8 +178,21 @@ int main(void) {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        glBindVertexArray(state.vao);
+        glUseProgram(state.shader);
+
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, NULL);
+
+        glUseProgram(0);
+        glBindVertexArray(0);
+
         glfwSwapBuffers(state.window);
     }
+
+    glDeleteBuffers(1, &state.ebo);
+    glDeleteBuffers(1, &state.vbo);
+    glDeleteVertexArrays(1, &state.vao);
+    glDeleteProgram(state.shader);
 
     glfwDestroyWindow(state.window);
     glfwTerminate();
