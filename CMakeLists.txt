@@ -3,6 +3,8 @@ project(quadcraft VERSION 0.1.0 LANGUAGES C)
 
 add_executable(${PROJECT_NAME}
     src/main.c
+    src/math3d.c
+    src/math3d.h
     src/utils.c
     src/utils.h
 )
