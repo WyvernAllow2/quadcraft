@@ -30,6 +30,14 @@ else()
     )
 endif()
 
+add_subdirectory(deps/glfw)
+add_subdirectory(deps/glad)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    glfw
+    glad
+)
+
 add_custom_target(copy_assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_LIST_DIR}/res ${CMAKE_CURRENT_BINARY_DIR}/res
 )
