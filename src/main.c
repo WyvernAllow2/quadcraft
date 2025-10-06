@@ -130,7 +130,7 @@ int main(void) {
         old_time = new_time;
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | 123);
+        glClear(GL_COLOR_BUFFER_BIT);
 
         glfwSwapBuffers(state.window);
     }
