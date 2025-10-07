@@ -6,6 +6,7 @@
 #include "blocks.h"
 #include "direction.h"
 #include "math3d.h"
+#include "mesh_allocator.h"
 #include "utils.h"
 
 #define GLFW_INCLUDE_NONE
@@ -26,11 +27,6 @@ typedef struct Camera {
     float zfar;
 } Camera;
 
-typedef struct Vertex {
-    Vec3 position;
-    Vec3 normal;
-} Vertex;
-
 struct {
     int window_w;
     int window_h;
@@ -38,9 +34,6 @@ struct {
     GLFWwindow *window;
 
     GLuint shader;
-    GLuint vao;
-    GLuint vbo;
-    GLuint ebo;
 
     Camera camera;
     float old_mouse_x;
@@ -49,6 +42,8 @@ struct {
 
     Vertex *vertices;
     size_t vertex_count;
+
+    Mesh_Allocator meshes;
 } state;
 
 static void glfw_error_callback(int error_code, const char *description) {
@@ -232,7 +227,7 @@ static const iVec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
         {0, 0, 0},
     },
 };
-/* clang-format off */
+/* clang-format on */
 
 static void emit_face(iVec3 coord, Direction direction) {
     iVec3 normal = direction_to_ivec3(direction);
@@ -344,42 +339,45 @@ int main(void) {
     state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
     state.vertex_count = 0;
 
-    uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
-    for (uint32_t i = 0; i < MAX_QUADS; i++) {
-        indices[i * 6 + 0] = 0 + i * 4;
-        indices[i * 6 + 1] = 1 + i * 4;
-        indices[i * 6 + 2] = 3 + i * 4;
-        indices[i * 6 + 3] = 1 + i * 4;
-        indices[i * 6 + 4] = 2 + i * 4;
-        indices[i * 6 + 5] = 3 + i * 4;
-    }
+    // uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
+    // for (uint32_t i = 0; i < MAX_QUADS; i++) {
+    //     indices[i * 6 + 0] = 0 + i * 4;
+    //     indices[i * 6 + 1] = 1 + i * 4;
+    //     indices[i * 6 + 2] = 3 + i * 4;
+    //     indices[i * 6 + 3] = 1 + i * 4;
+    //     indices[i * 6 + 4] = 2 + i * 4;
+    //     indices[i * 6 + 5] = 3 + i * 4;
+    // }
 
-    glGenVertexArrays(1, &state.vao);
-    glGenBuffers(1, &state.vbo);
-    glGenBuffers(1, &state.ebo);
+    // glGenVertexArrays(1, &state.vao);
+    // glGenBuffers(1, &state.vbo);
+    // glGenBuffers(1, &state.ebo);
 
-    glBindVertexArray(state.vao);
+    // glBindVertexArray(state.vao);
 
-    glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-    glBufferData(GL_ARRAY_BUFFER, MAX_VERTS * sizeof(Vertex), NULL, GL_DYNAMIC_DRAW);
+    // glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
+    // glBufferData(GL_ARRAY_BUFFER, MAX_VERTS * sizeof(Vertex), NULL, GL_DYNAMIC_DRAW);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_INDICES * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+    // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
+    // glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_INDICES * sizeof(uint32_t), indices,
+    // GL_STATIC_DRAW);
 
-    free(indices);
+    // free(indices);
 
-    const void *position_offset = (const void *)offsetof(Vertex, position);
-    const void *normal_offset = (const void *)offsetof(Vertex, normal);
+    // const void *position_offset = (const void *)offsetof(Vertex, position);
+    // const void *normal_offset = (const void *)offsetof(Vertex, normal);
 
-    /* Position attribute */
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), position_offset);
+    // /* Position attribute */
+    // glEnableVertexAttribArray(0);
+    // glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), position_offset);
 
-    /* Normal attribute */
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), normal_offset);
+    // /* Normal attribute */
+    // glEnableVertexAttribArray(1);
+    // glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), normal_offset);
 
-    glBindVertexArray(0);
+    // glBindVertexArray(0);
+
+    mesh_allocator_init(&state.meshes, MAX_QUADS * 4);
 
     state.camera = (Camera){
         .position = {0, 0, 0},
@@ -393,6 +391,10 @@ int main(void) {
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
+
+    Mesh mesh = {0};
+
+    int frame = 0;
 
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
@@ -436,15 +438,40 @@ int main(void) {
             wish_dir.y -= 1;
         }
 
+        if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_LEFT)) {
+            iVec3 coord = {
+                state.camera.position.x + cam_forward.x,
+                state.camera.position.y + cam_forward.y,
+                state.camera.position.z + cam_forward.z,
+            };
+
+            if (get_block(&chunk, coord) != BLOCK_AIR) {
+                set_block(&chunk, coord, BLOCK_AIR);
+                chunk.is_dirty = true;
+            }
+        }
+
         state.camera.position = vec3_add(
             state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
 
+        if (frame % 60 == 0) {
+            for (int z = 0; z < CHUNK_SIZE; z++) {
+                for (int y = 0; y < CHUNK_SIZE; y++) {
+                    for (int x = 0; x < CHUNK_SIZE; x++) {
+                        int index = get_block_index((iVec3){x, y, z});
+                        chunk.blocks[index] = rand() % 2;
+                    }
+                }
+            }
+
+            chunk.is_dirty = true;
+        }
+
         if (chunk.is_dirty) {
             mesh_chunk(&chunk);
+            mesh_allocator_upload(&state.meshes, &mesh, state.vertices, state.vertex_count);
 
-            glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * state.vertex_count,
-                            state.vertices);
+            printf("Mesh allocated: {offset: %zu, length: %zu}\n", mesh.offset, mesh.length);
 
             chunk.is_dirty = false;
         }
@@ -459,23 +486,23 @@ int main(void) {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glBindVertexArray(state.vao);
+        glBindVertexArray(state.meshes.vao);
         glUseProgram(state.shader);
 
         uniform_mat4(state.shader, "u_view", &view);
         uniform_mat4(state.shader, "u_proj", &proj);
 
-        glDrawElements(GL_TRIANGLES, (state.vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL);
+        glDrawElementsBaseVertex(GL_TRIANGLES, (mesh.length / 4) * 6, GL_UNSIGNED_INT, NULL,
+                                 mesh.offset);
 
         glUseProgram(0);
         glBindVertexArray(0);
 
         glfwSwapBuffers(state.window);
+
+        frame++;
     }
 
-    glDeleteBuffers(1, &state.ebo);
-    glDeleteBuffers(1, &state.vbo);
-    glDeleteVertexArrays(1, &state.vao);
     glDeleteProgram(state.shader);
 
     glfwDestroyWindow(state.window);
