@@ -9,6 +9,8 @@ add_executable(${PROJECT_NAME}
     src/main.c
     src/math3d.c
     src/math3d.h
+    src/mesh_allocator.c
+    src/mesh_allocator.h
     src/utils.c
     src/utils.h
 )
