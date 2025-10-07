@@ -46,6 +46,9 @@ struct {
     float old_mouse_x;
     float old_mouse_y;
     bool first_mouse;
+
+    Vertex *vertices;
+    size_t vertex_count;
 } state;
 
 static void glfw_error_callback(int error_code, const char *description) {
@@ -190,82 +193,81 @@ static bool is_transparent(const Chunk *chunk, iVec3 coord) {
 #define MAX_VERTS (MAX_QUADS * 4)
 #define MAX_INDICES (MAX_QUADS * 6)
 
-static const Vec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
-    [DIR_POSITIVE_X] =
-        {
-            {1, 0, 0},
-            {1, 1, 0},
-            {1, 1, 1},
-            {1, 0, 1},
-        },
-    [DIR_POSITIVE_Y] =
-        {
-
-            {1, 1, 1},
-            {1, 1, 0},
-            {0, 1, 0},
-            {0, 1, 1},
-        },
-    [DIR_POSITIVE_Z] =
-        {
-
-            {0, 0, 1},
-            {1, 0, 1},
-            {1, 1, 1},
-            {0, 1, 1},
-
-        },
-    [DIR_NEGATIVE_X] =
-        {
-            {0, 0, 1},
-            {0, 1, 1},
-            {0, 1, 0},
-            {0, 0, 0},
-        },
-    [DIR_NEGATIVE_Y] =
-        {
-
-            {0, 0, 1},
-            {0, 0, 0},
-            {1, 0, 0},
-            {1, 0, 1},
-
-        },
-    [DIR_NEGATIVE_Z] =
-        {
-            {0, 1, 0},
-            {1, 1, 0},
-            {1, 0, 0},
-            {0, 0, 0},
-        },
+/* clang-format off */
+static const iVec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
+    [DIR_POSITIVE_X] = {
+        {1, 0, 0},
+        {1, 1, 0},
+        {1, 1, 1},
+        {1, 0, 1},
+    },
+    [DIR_POSITIVE_Y] = {
+        {1, 1, 1},
+        {1, 1, 0},
+        {0, 1, 0},
+        {0, 1, 1},
+    },
+    [DIR_POSITIVE_Z] = {
+        {0, 0, 1},
+        {1, 0, 1},
+        {1, 1, 1},
+        {0, 1, 1},
+    },
+    [DIR_NEGATIVE_X] = {
+        {0, 0, 1},
+        {0, 1, 1},
+        {0, 1, 0},
+        {0, 0, 0},
+    },
+    [DIR_NEGATIVE_Y] = {
+        {0, 0, 1},
+        {0, 0, 0},
+        {1, 0, 0},
+        {1, 0, 1},
+    },
+    [DIR_NEGATIVE_Z] = {
+        {0, 1, 0},
+        {1, 1, 0},
+        {1, 0, 0},
+        {0, 0, 0},
+    },
 };
+/* clang-format off */
 
-static void mesh_chunk(const Chunk *chunk, Vertex *vertices, size_t *vertex_count) {
-    *vertex_count = 0;
+static void emit_face(iVec3 coord, Direction direction) {
+    iVec3 normal = direction_to_ivec3(direction);
+
+    for (size_t i = 0; i < 4; i++) {
+        state.vertices[state.vertex_count + i] = (Vertex){
+            .position = vec3_from_ivec3(ivec3_add(coord, FACE_VERTICES[direction][i])),
+            .normal = vec3_from_ivec3(normal),
+        };
+    }
+
+    state.vertex_count += 4;
+}
+
+static void mesh_block(const Chunk *chunk, iVec3 coord) {
+    for (Direction direction = 0; direction < DIRECTION_COUNT; direction++) {
+        iVec3 normal = direction_to_ivec3(direction);
+
+        if (is_transparent(chunk, ivec3_add(coord, normal))) {
+            emit_face(coord, direction);
+        }
+    }
+}
+
+static void mesh_chunk(const Chunk *chunk) {
+    state.vertex_count = 0;
 
     for (int z = 0; z < CHUNK_SIZE; z++) {
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 iVec3 coord = {x, y, z};
-                Vec3 position = {x, y, z};
-
                 int index = get_block_index(coord);
+
                 if (chunk->blocks[index] != BLOCK_AIR) {
-                    for (Direction d = 0; d < DIRECTION_COUNT; d++) {
-                        iVec3 normal = direction_to_ivec3(d);
-                        Vec3 fnormal = vec3_from_ivec3(normal);
-
-                        if (is_transparent(chunk, ivec3_add(coord, normal))) {
-                            for (size_t i = 0; i < 4; i++) {
-                                vertices[*vertex_count + i] = (Vertex){
-                                    .position = vec3_add(position, FACE_VERTICES[d][i]),
-                                    .normal = fnormal,
-                                };
-                            }
-
-                            *vertex_count += 4;
-                        }
-                    }
+                    mesh_block(chunk, coord);
                 }
             }
         }
@@ -339,8 +341,8 @@ int main(void) {
 
     chunk.is_dirty = true;
 
-    Vertex *vertices = malloc(sizeof(Vertex) * MAX_VERTS);
-    size_t vertex_count = 0;
+    state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
+    state.vertex_count = 0;
 
     uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
     for (uint32_t i = 0; i < MAX_QUADS; i++) {
@@ -363,6 +365,8 @@ int main(void) {
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_INDICES * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+
+    free(indices);
 
     const void *position_offset = (const void *)offsetof(Vertex, position);
     const void *normal_offset = (const void *)offsetof(Vertex, normal);
@@ -436,10 +440,11 @@ int main(void) {
             state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
 
         if (chunk.is_dirty) {
-            mesh_chunk(&chunk, vertices, &vertex_count);
+            mesh_chunk(&chunk);
 
             glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * vertex_count, vertices);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * state.vertex_count,
+                            state.vertices);
 
             chunk.is_dirty = false;
         }
@@ -460,7 +465,7 @@ int main(void) {
         uniform_mat4(state.shader, "u_view", &view);
         uniform_mat4(state.shader, "u_proj", &proj);
 
-        glDrawElements(GL_TRIANGLES, (vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL);
+        glDrawElements(GL_TRIANGLES, (state.vertex_count / 4) * 6, GL_UNSIGNED_INT, NULL);
 
         glUseProgram(0);
         glBindVertexArray(0);
