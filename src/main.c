@@ -7,11 +7,13 @@
 #include "direction.h"
 #include "math3d.h"
 #include "mesh_allocator.h"
+#include "texture_id.h"
 #include "utils.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
+#include <stb_image.h>
 
 #define CAMERA_SPEED 4.0f
 #define MOUSE_SENSITIVITY 0.125f
@@ -139,6 +141,10 @@ static void uniform_mat4(GLuint program, const char *name, const Mat4 *value) {
     glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, value->data);
 }
 
+static void uniform_int(GLuint program, const char *name, int value) {
+    glUniform1i(glGetUniformLocation(program, name), value);
+}
+
 #define CHUNK_SIZE 32
 #define CHUNK_VOLUME (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)
 
@@ -179,6 +185,49 @@ static void set_block(Chunk *chunk, iVec3 coord, Block_Type type) {
 static bool is_transparent(const Chunk *chunk, iVec3 coord) {
     Block_Type block = get_block(chunk, coord);
     return get_block_properties(block)->is_transparent;
+}
+
+static GLuint load_textures(void) {
+    stbi_set_flip_vertically_on_load(true);
+
+    GLuint texture_array;
+    glGenTextures(1, &texture_array);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, texture_array);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, TEXTURE_SIZE, TEXTURE_SIZE, TEXTURE_ID_COUNT);
+
+    for (int i = 0; i < TEXTURE_ID_COUNT; ++i) {
+        const char *filename = get_texture_filename(i);
+
+        int width;
+        int height;
+        int num_channels;
+        uint8_t *data = stbi_load(filename, &width, &height, &num_channels, STBI_rgb_alpha);
+        if (!data) {
+            fprintf(stderr, "Failed to load texture: %s\n", get_texture_filename(i));
+            continue;
+        }
+
+        if (width != 16 || height != 16) {
+            fprintf(stderr, "Invalid texture size: %s\n", get_texture_filename(i));
+            continue;
+        }
+
+        glTexSubImage3D(GL_TEXTURE_2D_ARRAY,
+                        0,                 // mip level
+                        0, 0, i,           // x, y, layer
+                        width, height, 1,  // width, height, depth
+                        GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+        stbi_image_free(data);
+    }
+
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    return texture_array;
 }
 
 /* The maximum number of quads a chunk could possibly have. Assuming the worse-case scenario of a 3D
@@ -229,13 +278,14 @@ static const iVec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
 };
 /* clang-format on */
 
-static void emit_face(iVec3 coord, Direction direction) {
+static void emit_face(iVec3 coord, Direction direction, Texture_ID texture) {
     iVec3 normal = direction_to_ivec3(direction);
 
     for (size_t i = 0; i < 4; i++) {
         state.vertices[state.vertex_count + i] = (Vertex){
             .position = vec3_from_ivec3(ivec3_add(coord, FACE_VERTICES[direction][i])),
             .normal = vec3_from_ivec3(normal),
+            .texture = texture,
         };
     }
 
@@ -243,11 +293,13 @@ static void emit_face(iVec3 coord, Direction direction) {
 }
 
 static void mesh_block(const Chunk *chunk, iVec3 coord) {
+    const Block_Properties *properties = get_block_properties(get_block(chunk, coord));
+
     for (Direction direction = 0; direction < DIRECTION_COUNT; direction++) {
         iVec3 normal = direction_to_ivec3(direction);
 
         if (is_transparent(chunk, ivec3_add(coord, normal))) {
-            emit_face(coord, direction);
+            emit_face(coord, direction, properties->face_textures[direction]);
         }
     }
 }
@@ -394,7 +446,7 @@ int main(void) {
 
     Mesh mesh = {0};
 
-    int frame = 0;
+    GLuint textures = load_textures();
 
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
@@ -451,21 +503,21 @@ int main(void) {
             }
         }
 
+        if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_RIGHT)) {
+            iVec3 coord = {
+                state.camera.position.x + cam_forward.x,
+                state.camera.position.y + cam_forward.y,
+                state.camera.position.z + cam_forward.z,
+            };
+
+            if (get_block(&chunk, coord) != BLOCK_DEBUG) {
+                set_block(&chunk, coord, BLOCK_DEBUG);
+                chunk.is_dirty = true;
+            }
+        }
+
         state.camera.position = vec3_add(
             state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
-
-        if (frame % 60 == 0) {
-            for (int z = 0; z < CHUNK_SIZE; z++) {
-                for (int y = 0; y < CHUNK_SIZE; y++) {
-                    for (int x = 0; x < CHUNK_SIZE; x++) {
-                        int index = get_block_index((iVec3){x, y, z});
-                        chunk.blocks[index] = rand() % 2;
-                    }
-                }
-            }
-
-            chunk.is_dirty = true;
-        }
 
         if (chunk.is_dirty) {
             mesh_chunk(&chunk);
@@ -489,6 +541,10 @@ int main(void) {
         glBindVertexArray(state.meshes.vao);
         glUseProgram(state.shader);
 
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, textures);
+        uniform_int(state.shader, "u_textures", 0);
+
         uniform_mat4(state.shader, "u_view", &view);
         uniform_mat4(state.shader, "u_proj", &proj);
 
@@ -499,8 +555,6 @@ int main(void) {
         glBindVertexArray(0);
 
         glfwSwapBuffers(state.window);
-
-        frame++;
     }
 
     glDeleteProgram(state.shader);

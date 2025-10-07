@@ -158,6 +158,10 @@ void mesh_allocator_init(Mesh_Allocator *allocator, size_t quad_capacity) {
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                           (const void *)offsetof(Vertex, normal));
 
+    /* Texture attribute */
+    glEnableVertexAttribArray(2);
+    glVertexAttribIPointer(2, 1, GL_INT, sizeof(Vertex), (const void *)offsetof(Vertex, texture));
+
     glBindVertexArray(0);
 
     insert_free_mesh(allocator, 0, (Mesh){0, allocator->quad_capacity * 4});

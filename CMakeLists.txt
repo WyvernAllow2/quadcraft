@@ -11,6 +11,8 @@ add_executable(${PROJECT_NAME}
     src/math3d.h
     src/mesh_allocator.c
     src/mesh_allocator.h
+    src/texture_id.c
+    src/texture_id.h
     src/utils.c
     src/utils.h
 )

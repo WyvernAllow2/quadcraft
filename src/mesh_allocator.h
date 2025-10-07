@@ -9,6 +9,7 @@
 typedef struct Vertex {
     Vec3 position;
     Vec3 normal;
+    int texture;
 } Vertex;
 
 typedef struct Mesh {
