@@ -475,6 +475,7 @@ int main(void) {
     }
 
     state.world = malloc(sizeof(World));
+    state.world->dirty_chunk_count = 0;
     state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
     state.vertex_count = 0;
 
