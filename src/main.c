@@ -398,6 +398,10 @@ Vec3 cam_forward;
 Block_Type place_block = 1;
 
 static void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
+    (void)window;
+    (void)button;
+    (void)mods;
+
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
         Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
         if (result.did_hit) {
@@ -414,6 +418,10 @@ static void mouse_button_callback(GLFWwindow *window, int button, int action, in
 }
 
 static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+    (void)window;
+    (void)scancode;
+    (void)mods;
+
     if (key >= GLFW_KEY_0 && key < GLFW_KEY_9 && action == GLFW_PRESS) {
         place_block = (key - GLFW_KEY_0) + 1;
         if (place_block > BLOCK_TYPE_COUNT) {
