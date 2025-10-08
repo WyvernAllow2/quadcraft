@@ -143,6 +143,30 @@ iVec3 ivec3_sub(iVec3 a, iVec3 b) {
     };
 }
 
+iVec3 ivec3_mod(iVec3 v, int x) {
+    return (iVec3){
+        .x = mod(v.x, x),
+        .y = mod(v.y, x),
+        .z = mod(v.z, x),
+    };
+}
+
+iVec3 ivec3_mul(iVec3 v, int s) {
+    return (iVec3){
+        .x = v.x * s,
+        .y = v.y * s,
+        .z = v.z * s,
+    };
+}
+
+iVec3 ivec3_div(iVec3 v, int s) {
+    return (iVec3){
+        .x = v.x / s,
+        .y = v.y / s,
+        .z = v.z / s,
+    };
+}
+
 Vec3 vec3_from_ivec3(iVec3 v) {
     return (Vec3){
         .x = (float)v.x,

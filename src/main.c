@@ -46,7 +46,7 @@ struct {
     Vertex *vertices;
     size_t vertex_count;
 
-    Mesh_Allocator meshes;
+    Mesh_Allocator allocator;
     World *world;
 } state;
 
@@ -493,9 +493,7 @@ int main(void) {
     state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
     state.vertex_count = 0;
 
-    state.world->dirty_chunk_count = 0;
-
-    mesh_allocator_init(&state.meshes, MAX_QUADS * 25);
+    mesh_allocator_init(&state.allocator, MAX_QUADS * 25);
 
     state.camera = (Camera){
         .position = {0, 120, 0},
@@ -570,7 +568,8 @@ int main(void) {
         Chunk *next = pop_next_dirty(player_coord);
         if (next) {
             mesh_chunk(next->coord);
-            mesh_allocator_upload(&state.meshes, &next->mesh, state.vertices, state.vertex_count);
+            mesh_allocator_upload(&state.allocator, &next->mesh, state.vertices,
+                                  state.vertex_count);
         }
 
         Mat4 view;
@@ -583,7 +582,7 @@ int main(void) {
         glClearColor(0.7f, 0.7f, 0.9f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glBindVertexArray(state.meshes.vao);
+        glBindVertexArray(state.allocator.vao);
         glUseProgram(state.shader);
 
         glActiveTexture(GL_TEXTURE0);

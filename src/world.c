@@ -31,7 +31,7 @@ static bool is_chunk_in_world_bounds(iVec3 chunk_position) {
 }
 
 static bool is_on_chunk_edge(iVec3 position) {
-    int max = CHUNK_SIZE - 1;
+    const int max = CHUNK_SIZE - 1;
 
     return position.x == 0 || position.y == 0 || position.z == 0 || position.x == max ||
            position.y == max || position.z == max;
@@ -65,76 +65,42 @@ Chunk *world_get_chunk(World *world, iVec3 chunk_position) {
 }
 
 Block_Type world_get_block_unsafe(World *world, iVec3 block_position) {
-    iVec3 chunk_position = {
-        block_position.x / CHUNK_SIZE,
-        block_position.y / CHUNK_SIZE,
-        block_position.z / CHUNK_SIZE,
-    };
-
-    iVec3 local_position = {
-        mod(block_position.x, CHUNK_SIZE),
-        mod(block_position.y, CHUNK_SIZE),
-        mod(block_position.z, CHUNK_SIZE),
-    };
+    iVec3 chunk_position = ivec3_div(block_position, CHUNK_SIZE);
+    iVec3 local_position = ivec3_mod(block_position, CHUNK_SIZE);
 
     Chunk *chunk = world_get_chunk_unsafe(world, chunk_position);
     return chunk->blocks[get_block_index(local_position)];
 }
 
 Block_Type world_get_block(World *world, iVec3 block_position) {
-    iVec3 chunk_position = {
-        block_position.x / CHUNK_SIZE,
-        block_position.y / CHUNK_SIZE,
-        block_position.z / CHUNK_SIZE,
-    };
+    iVec3 chunk_position = ivec3_div(block_position, CHUNK_SIZE);
 
     if (!is_chunk_in_world_bounds(chunk_position)) {
         return BLOCK_AIR;
     }
 
-    iVec3 local_position = {
-        mod(block_position.x, CHUNK_SIZE),
-        mod(block_position.y, CHUNK_SIZE),
-        mod(block_position.z, CHUNK_SIZE),
-    };
+    iVec3 local_position = ivec3_mod(block_position, CHUNK_SIZE);
 
     Chunk *chunk = world_get_chunk_unsafe(world, chunk_position);
     return chunk->blocks[get_block_index(local_position)];
 }
 
 void world_set_block_unsafe(World *world, iVec3 block_position, Block_Type type) {
-    iVec3 chunk_position = {
-        block_position.x / CHUNK_SIZE,
-        block_position.y / CHUNK_SIZE,
-        block_position.z / CHUNK_SIZE,
-    };
-
-    iVec3 local_position = {
-        mod(block_position.x, CHUNK_SIZE),
-        mod(block_position.y, CHUNK_SIZE),
-        mod(block_position.z, CHUNK_SIZE),
-    };
+    iVec3 chunk_position = ivec3_div(block_position, CHUNK_SIZE);
+    iVec3 local_position = ivec3_mod(block_position, CHUNK_SIZE);
 
     Chunk *chunk = world_get_chunk_unsafe(world, chunk_position);
     chunk->blocks[get_block_index(local_position)] = type;
 }
 
 void world_set_block(World *world, iVec3 block_position, Block_Type type) {
-    iVec3 chunk_position = {
-        block_position.x / CHUNK_SIZE,
-        block_position.y / CHUNK_SIZE,
-        block_position.z / CHUNK_SIZE,
-    };
+    iVec3 chunk_position = ivec3_div(block_position, CHUNK_SIZE);
 
     if (!is_chunk_in_world_bounds(chunk_position)) {
         return;
     }
 
-    iVec3 local_position = {
-        mod(block_position.x, CHUNK_SIZE),
-        mod(block_position.y, CHUNK_SIZE),
-        mod(block_position.z, CHUNK_SIZE),
-    };
+    iVec3 local_position = ivec3_mod(block_position, CHUNK_SIZE);
 
     Chunk *chunk = world_get_chunk_unsafe(world, chunk_position);
 
@@ -186,7 +152,6 @@ Hit_Result world_raycast(World *world, Vec3 origin, Vec3 direction) {
     };
 
     Direction dir;
-
     for (int i = 0; i < 1000; i++) {
         if (side_dist.x < side_dist.y && side_dist.x < side_dist.z) {
             map.x += step_dir.x;

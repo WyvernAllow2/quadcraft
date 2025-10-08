@@ -45,6 +45,9 @@ typedef struct iVec3 {
 
 iVec3 ivec3_add(iVec3 a, iVec3 b);
 iVec3 ivec3_sub(iVec3 a, iVec3 b);
+iVec3 ivec3_mod(iVec3 v, int x);
+iVec3 ivec3_mul(iVec3 v, int s);
+iVec3 ivec3_div(iVec3 v, int s);
 
 Vec3 vec3_from_ivec3(iVec3 v);
 iVec3 ivec3_from_vec3(Vec3 v);
