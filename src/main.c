@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "blocks.h"
+#include "camera.h"
 #include "direction.h"
 #include "math3d.h"
 #include "mesh_allocator.h"
@@ -18,17 +19,6 @@
 
 #define CAMERA_SPEED 5.0f
 #define MOUSE_SENSITIVITY 0.125f
-
-typedef struct Camera {
-    Vec3 position;
-    float pitch;
-    float yaw;
-
-    float fov;
-    float aspect;
-    float znear;
-    float zfar;
-} Camera;
 
 struct {
     int window_w;
@@ -134,9 +124,6 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
 
     state.camera.yaw += to_radians(delta_x * MOUSE_SENSITIVITY);
     state.camera.pitch += to_radians(-delta_y * MOUSE_SENSITIVITY);
-
-    state.camera.pitch = clamp(state.camera.pitch, -HALF_PI + 1e-6f, HALF_PI - 1e-6);
-    state.camera.yaw = fmodf(state.camera.yaw + TAU, TAU);
 }
 
 static void uniform_mat4(GLuint program, const char *name, const Mat4 *value) {
@@ -393,8 +380,6 @@ static Chunk *pop_next_dirty(iVec3 player_coord) {
     return closest_dirty;
 }
 
-Vec3 cam_forward;
-
 Block_Type place_block = 1;
 
 static void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
@@ -403,14 +388,14 @@ static void mouse_button_callback(GLFWwindow *window, int button, int action, in
     (void)mods;
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
+        Hit_Result result = world_raycast(state.world, state.camera.position, state.camera.forward);
         if (result.did_hit) {
             world_set_block(state.world, result.position, BLOCK_AIR);
         }
     }
 
     if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
-        Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
+        Hit_Result result = world_raycast(state.world, state.camera.position, state.camera.forward);
         if (result.did_hit) {
             world_set_block(state.world, ivec3_add(result.position, result.normal), place_block);
         }
@@ -522,30 +507,21 @@ int main(void) {
         float delta_time = new_time - old_time;
         old_time = new_time;
 
-        cam_forward = vec3_normalize((Vec3){
-            .x = cosf(state.camera.yaw) * cosf(state.camera.pitch),
-            .y = sinf(state.camera.pitch),
-            .z = sinf(state.camera.yaw) * cosf(state.camera.pitch),
-        });
-
-        const Vec3 cam_right = vec3_normalize(vec3_cross(cam_forward, (Vec3){0, 1, 0}));
-        const Vec3 cam_up = vec3_normalize(vec3_cross(cam_right, cam_forward));
-
         Vec3 wish_dir = {0};
         if (glfwGetKey(state.window, GLFW_KEY_W)) {
-            wish_dir = vec3_add(wish_dir, cam_forward);
+            wish_dir = vec3_add(wish_dir, state.camera.forward);
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_S)) {
-            wish_dir = vec3_sub(wish_dir, cam_forward);
+            wish_dir = vec3_sub(wish_dir, state.camera.forward);
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_D)) {
-            wish_dir = vec3_add(wish_dir, cam_right);
+            wish_dir = vec3_add(wish_dir, state.camera.right);
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_A)) {
-            wish_dir = vec3_sub(wish_dir, cam_right);
+            wish_dir = vec3_sub(wish_dir, state.camera.right);
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_SPACE)) {
@@ -558,6 +534,8 @@ int main(void) {
 
         state.camera.position = vec3_add(
             state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
+
+        camera_update(&state.camera);
 
         iVec3 player_coord = {
             .x = state.camera.position.x / CHUNK_SIZE,
@@ -572,13 +550,6 @@ int main(void) {
                                   state.vertex_count);
         }
 
-        Mat4 view;
-        mat4_look_at(&view, state.camera.position, vec3_add(state.camera.position, cam_forward),
-                     cam_up);
-        Mat4 proj;
-        mat4_perspective(&proj, state.camera.fov, state.camera.aspect, state.camera.znear,
-                         state.camera.zfar);
-
         glClearColor(0.7f, 0.7f, 0.9f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -589,8 +560,8 @@ int main(void) {
         glBindTexture(GL_TEXTURE_2D_ARRAY, textures);
         uniform_int(state.shader, "u_textures", 0);
 
-        uniform_mat4(state.shader, "u_view", &view);
-        uniform_mat4(state.shader, "u_proj", &proj);
+        uniform_mat4(state.shader, "u_view", &state.camera.view);
+        uniform_mat4(state.shader, "u_proj", &state.camera.proj);
 
         for (size_t i = 0; i < WORLD_VOLUME; i++) {
             Chunk *chunk = &state.world->chunk[i];
