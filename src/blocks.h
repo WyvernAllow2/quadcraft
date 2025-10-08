@@ -12,7 +12,6 @@ typedef enum Block_Type {
     BLOCK_DIRT,
     BLOCK_STONE,
     BLOCK_GRASS,
-    BLOCK_DEBUG,
 
     BLOCK_TYPE_COUNT,
 } Block_Type;

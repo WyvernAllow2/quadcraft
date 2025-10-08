@@ -406,7 +406,7 @@ static void mouse_button_callback(GLFWwindow *window, int button, int action, in
     if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
         Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
         if (result.did_hit) {
-            world_set_block(state.world, ivec3_add(result.position, result.normal), BLOCK_DEBUG);
+            world_set_block(state.world, ivec3_add(result.position, result.normal), BLOCK_STONE);
         }
     }
 }

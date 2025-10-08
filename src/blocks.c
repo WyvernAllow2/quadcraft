@@ -22,17 +22,6 @@ static const Block_Properties BLOCK_TABLE[BLOCK_TYPE_COUNT] = {
         .is_transparent = false,
         .face_textures = FACES_SIDE_TOP_BOTTOM(TEXTURE_GRASS_SIDE, TEXTURE_GRASS, TEXTURE_DIRT),
     },
-    [BLOCK_DEBUG] = {
-        .is_transparent = false,
-        .face_textures = {
-            [DIR_POSITIVE_X] = TEXTURE_POSITIVE_X,
-            [DIR_POSITIVE_Y] = TEXTURE_POSITIVE_Y,
-            [DIR_POSITIVE_Z] = TEXTURE_POSITIVE_Z,
-            [DIR_NEGATIVE_X] = TEXTURE_NEGATIVE_X,
-            [DIR_NEGATIVE_Y] = TEXTURE_NEGATIVE_Y,
-            [DIR_NEGATIVE_Z] = TEXTURE_NEGATIVE_Z,
-        }
-    }
 };
 /* clang-format on */
 
