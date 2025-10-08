@@ -15,6 +15,8 @@ add_executable(${PROJECT_NAME}
     src/texture_id.h
     src/utils.c
     src/utils.h
+    src/world.c
+    src/world.h
 )
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 99)

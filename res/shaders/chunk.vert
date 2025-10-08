@@ -11,8 +11,10 @@ out vec2 v_uv;
 
 flat out int v_texture;
 
+uniform ivec3 u_chunk_position;
+
 void main() {
-    gl_Position = u_proj * u_view * vec4(a_position, 1.0);
+    gl_Position = u_proj * u_view * vec4(a_position + u_chunk_position * 32.0, 1.0);
     v_normal = a_normal;
 
     v_uv = vec2(dot(a_normal.xzy, a_position.zxx), a_position.y + a_normal.y * a_position.z);

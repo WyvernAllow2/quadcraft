@@ -111,6 +111,7 @@ static Mesh allocate_mesh(Mesh_Allocator *allocator, size_t length) {
         }
     }
 
+    fprintf(stderr, "Out of vertex buffer memory");
     return (Mesh){0, 0};
 }
 
@@ -184,7 +185,7 @@ static void upload_mesh(Mesh_Allocator *allocator, Mesh mesh, Vertex *vertices) 
     glBindBuffer(GL_ARRAY_BUFFER, allocator->vbo);
     glBufferSubData(GL_ARRAY_BUFFER, nbytes_offset, nbytes_vertex_data, vertices);
 
-    fprintf(stderr, "Uploaded %zu KiB of vertex data\n", (size_t)nbytes_vertex_data / 1024);
+    // fprintf(stderr, "Uploaded %zu KiB of vertex data\n", (size_t)nbytes_vertex_data / 1024);
 }
 
 void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, Vertex *vertices,
@@ -193,20 +194,20 @@ void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, Vertex *vertic
     assert(mesh != NULL);
 
     if (mesh->length == vertex_count) {
-        fprintf(stderr, "Mesh size did not change. Uploading without reallocation\n");
+        // fprintf(stderr, "Mesh size did not change. Uploading without reallocation\n");
         upload_mesh(allocator, *mesh, vertices);
         return;
     }
 
     if (mesh->length != 0) {
-        fprintf(stderr, "Deallocating old mesh: {%zu, %zu}\n", mesh->offset, mesh->length);
+        // fprintf(stderr, "Deallocating old mesh: {%zu, %zu}\n", mesh->offset, mesh->length);
         deallocate_mesh(allocator, *mesh);
     }
 
     Mesh new_mesh = allocate_mesh(allocator, vertex_count);
     if (new_mesh.length != 0) {
         *mesh = new_mesh;
-        fprintf(stderr, "Allocated new mesh: {%zu, %zu}\n", mesh->offset, mesh->length);
+        // fprintf(stderr, "Allocated new mesh: {%zu, %zu}\n", mesh->offset, mesh->length);
         upload_mesh(allocator, *mesh, vertices);
     }
 }

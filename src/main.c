@@ -9,13 +9,14 @@
 #include "mesh_allocator.h"
 #include "texture_id.h"
 #include "utils.h"
+#include "world.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 #include <stb_image.h>
 
-#define CAMERA_SPEED 4.0f
+#define CAMERA_SPEED 5.0f
 #define MOUSE_SENSITIVITY 0.125f
 
 typedef struct Camera {
@@ -46,6 +47,7 @@ struct {
     size_t vertex_count;
 
     Mesh_Allocator meshes;
+    World *world;
 } state;
 
 static void glfw_error_callback(int error_code, const char *description) {
@@ -143,48 +145,6 @@ static void uniform_mat4(GLuint program, const char *name, const Mat4 *value) {
 
 static void uniform_int(GLuint program, const char *name, int value) {
     glUniform1i(glGetUniformLocation(program, name), value);
-}
-
-#define CHUNK_SIZE 32
-#define CHUNK_VOLUME (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)
-
-typedef struct Chunk {
-    uint8_t blocks[CHUNK_VOLUME];
-    bool is_dirty;
-} Chunk;
-
-static bool in_chunk_bounds(iVec3 local_coords) {
-    return local_coords.x >= 0 && local_coords.y >= 0 && local_coords.z >= 0 &&
-           local_coords.x < CHUNK_SIZE && local_coords.y < CHUNK_SIZE &&
-           local_coords.z < CHUNK_SIZE;
-}
-
-static int get_block_index(iVec3 local_coords) {
-    int x = local_coords.x;
-    int y = local_coords.y;
-    int z = local_coords.z;
-    return x + CHUNK_SIZE * (y + CHUNK_SIZE * z);
-}
-
-static Block_Type get_block(const Chunk *chunk, iVec3 coord) {
-    if (!in_chunk_bounds(coord)) {
-        return BLOCK_AIR;
-    }
-
-    return chunk->blocks[get_block_index(coord)];
-}
-
-static void set_block(Chunk *chunk, iVec3 coord, Block_Type type) {
-    if (!in_chunk_bounds(coord)) {
-        return;
-    }
-
-    chunk->blocks[get_block_index(coord)] = type;
-}
-
-static bool is_transparent(const Chunk *chunk, iVec3 coord) {
-    Block_Type block = get_block(chunk, coord);
-    return get_block_properties(block)->is_transparent;
 }
 
 static GLuint load_textures(void) {
@@ -292,31 +252,161 @@ static void emit_face(iVec3 coord, Direction direction, Texture_ID texture) {
     state.vertex_count += 4;
 }
 
-static void mesh_block(const Chunk *chunk, iVec3 coord) {
-    const Block_Properties *properties = get_block_properties(get_block(chunk, coord));
+static bool is_block_transparent(Block_Type type) {
+    return get_block_properties(type)->is_transparent;
+}
 
-    for (Direction direction = 0; direction < DIRECTION_COUNT; direction++) {
-        iVec3 normal = direction_to_ivec3(direction);
+static bool chunk_is_block_in_local_bounds(iVec3 pos) {
+    return pos.x >= 0 && pos.x < CHUNK_SIZE && pos.y >= 0 && pos.y < CHUNK_SIZE && pos.z >= 0 &&
+           pos.z < CHUNK_SIZE;
+}
 
-        if (is_transparent(chunk, ivec3_add(coord, normal))) {
-            emit_face(coord, direction, properties->face_textures[direction]);
+static bool is_transparent_neighbor(const Chunk *chunk, const Chunk *neighbors[DIRECTION_COUNT],
+                                    iVec3 pos, Direction dir) {
+    iVec3 normal = direction_to_ivec3(dir);
+    iVec3 neighbor_pos = ivec3_add(pos, normal);
+
+    if (chunk_is_block_in_local_bounds(neighbor_pos)) {
+        return is_block_transparent(chunk_get_block_unsafe(chunk, neighbor_pos));
+    }
+
+    const Chunk *neighbor_chunk = neighbors[dir];
+    if (!neighbor_chunk) {
+        return true;
+    }
+
+    iVec3 neighbor_local = {
+        .x = mod(neighbor_pos.x, CHUNK_SIZE),
+        .y = mod(neighbor_pos.y, CHUNK_SIZE),
+        .z = mod(neighbor_pos.z, CHUNK_SIZE),
+    };
+
+    return is_block_transparent(chunk_get_block_unsafe(neighbor_chunk, neighbor_local));
+}
+
+static void mesh_block(const Chunk *chunk, const Chunk *neighbors[DIRECTION_COUNT], Block_Type type,
+                       iVec3 local_position) {
+    const Block_Properties *properties = get_block_properties(type);
+
+    for (Direction dir = 0; dir < DIRECTION_COUNT; dir++) {
+        if (is_transparent_neighbor(chunk, neighbors, local_position, dir)) {
+            emit_face(local_position, dir, properties->face_textures[dir]);
         }
     }
 }
 
-static void mesh_chunk(const Chunk *chunk) {
+static void mesh_chunk(iVec3 chunk_coord) {
     state.vertex_count = 0;
+
+    Chunk *chunk = world_get_chunk_unsafe(state.world, chunk_coord);
+    const Chunk *neighbors[DIRECTION_COUNT];
+    for (Direction direction = 0; direction < DIRECTION_COUNT; direction++) {
+        iVec3 normal = direction_to_ivec3(direction);
+        iVec3 neighbor_pos = ivec3_add(chunk_coord, normal);
+        neighbors[direction] = world_get_chunk(state.world, neighbor_pos);
+    }
 
     for (int z = 0; z < CHUNK_SIZE; z++) {
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 iVec3 coord = {x, y, z};
-                int index = get_block_index(coord);
+                Block_Type type = chunk_get_block_unsafe(chunk, coord);
 
-                if (chunk->blocks[index] != BLOCK_AIR) {
-                    mesh_block(chunk, coord);
+                if (type != BLOCK_AIR) {
+                    mesh_block(chunk, neighbors, type, coord);
                 }
             }
+        }
+    }
+}
+
+static void generate_chunk(Chunk *chunk, iVec3 chunk_coord) {
+    chunk->is_dirty = false;
+    chunk->mesh.length = 0;
+    chunk->mesh.offset = 0;
+    chunk->coord = chunk_coord;
+
+    iVec3 chunk_offset = {
+        .x = chunk_coord.x * CHUNK_SIZE,
+        .y = chunk_coord.y * CHUNK_SIZE,
+        .z = chunk_coord.z * CHUNK_SIZE,
+    };
+
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                iVec3 local_pos = {x, y, z};
+                iVec3 block_position = ivec3_add(chunk_offset, local_pos);
+
+                int height = 100;
+                if (block_position.y > height) {
+                    chunk_set_block_unsafe(chunk, local_pos, BLOCK_AIR);
+                } else if (block_position.y == height) {
+                    chunk_set_block_unsafe(chunk, local_pos, BLOCK_GRASS);
+                } else {
+                    chunk_set_block_unsafe(chunk, local_pos, BLOCK_DIRT);
+                }
+            }
+        }
+    }
+}
+
+static void generate_world(World *world) {
+    for (int z = 0; z < WORLD_SIZE_Z; z++) {
+        for (int y = 0; y < WORLD_SIZE_Y; y++) {
+            for (int x = 0; x < WORLD_SIZE_X; x++) {
+                iVec3 coord = {x, y, z};
+                Chunk *chunk = world_get_chunk_unsafe(world, coord);
+                generate_chunk(chunk, coord);
+                world_mark_chunk_dirty(world, chunk);
+            }
+        }
+    }
+}
+
+static Chunk *pop_next_dirty(iVec3 player_coord) {
+    if (state.world->dirty_chunk_count == 0) {
+        return NULL;
+    }
+
+    int min_distance_squared = INT_MAX;
+    Chunk *closest_dirty = NULL;
+    size_t closest_dirty_index = 0;
+
+    for (size_t i = 0; i < state.world->dirty_chunk_count; i++) {
+        Chunk *chunk = state.world->dirty_chunks[i];
+        iVec3 delta = ivec3_sub(player_coord, chunk->coord);
+        int distance_squared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+
+        if (distance_squared < min_distance_squared) {
+            min_distance_squared = distance_squared;
+            closest_dirty = chunk;
+            closest_dirty_index = i;
+        }
+    }
+
+    state.world->dirty_chunks[closest_dirty_index] =
+        state.world->dirty_chunks[state.world->dirty_chunk_count - 1];
+    state.world->dirty_chunk_count--;
+
+    closest_dirty->is_dirty = false;
+    return closest_dirty;
+}
+
+Vec3 cam_forward;
+
+static void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+        Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
+        if (result.did_hit) {
+            world_set_block(state.world, result.position, BLOCK_AIR);
+        }
+    }
+
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+        Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
+        if (result.did_hit) {
+            world_set_block(state.world, ivec3_add(result.position, result.normal), BLOCK_DEBUG);
         }
     }
 }
@@ -362,6 +452,7 @@ int main(void) {
     glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, NULL, true);
 
     glfwSetWindowSizeCallback(state.window, window_size_callback);
+    glfwSetMouseButtonCallback(state.window, mouse_button_callback);
 
     state.first_mouse = true;
     glfwSetInputMode(state.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -376,77 +467,32 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    Chunk chunk;
-    for (int z = 0; z < CHUNK_SIZE; z++) {
-        for (int y = 0; y < CHUNK_SIZE; y++) {
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                int index = get_block_index((iVec3){x, y, z});
-                chunk.blocks[index] = BLOCK_DIRT;
-            }
-        }
-    }
-
-    chunk.is_dirty = true;
-
+    state.world = malloc(sizeof(World));
     state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
     state.vertex_count = 0;
 
-    // uint32_t *indices = malloc(sizeof(uint32_t) * MAX_INDICES);
-    // for (uint32_t i = 0; i < MAX_QUADS; i++) {
-    //     indices[i * 6 + 0] = 0 + i * 4;
-    //     indices[i * 6 + 1] = 1 + i * 4;
-    //     indices[i * 6 + 2] = 3 + i * 4;
-    //     indices[i * 6 + 3] = 1 + i * 4;
-    //     indices[i * 6 + 4] = 2 + i * 4;
-    //     indices[i * 6 + 5] = 3 + i * 4;
-    // }
+    state.world->dirty_chunk_count = 0;
 
-    // glGenVertexArrays(1, &state.vao);
-    // glGenBuffers(1, &state.vbo);
-    // glGenBuffers(1, &state.ebo);
-
-    // glBindVertexArray(state.vao);
-
-    // glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-    // glBufferData(GL_ARRAY_BUFFER, MAX_VERTS * sizeof(Vertex), NULL, GL_DYNAMIC_DRAW);
-
-    // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
-    // glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_INDICES * sizeof(uint32_t), indices,
-    // GL_STATIC_DRAW);
-
-    // free(indices);
-
-    // const void *position_offset = (const void *)offsetof(Vertex, position);
-    // const void *normal_offset = (const void *)offsetof(Vertex, normal);
-
-    // /* Position attribute */
-    // glEnableVertexAttribArray(0);
-    // glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), position_offset);
-
-    // /* Normal attribute */
-    // glEnableVertexAttribArray(1);
-    // glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), normal_offset);
-
-    // glBindVertexArray(0);
-
-    mesh_allocator_init(&state.meshes, MAX_QUADS * 4);
+    mesh_allocator_init(&state.meshes, MAX_QUADS * 25);
 
     state.camera = (Camera){
-        .position = {0, 0, 0},
+        .position = {0, 120, 0},
         .pitch = 0.0f,
         .yaw = -to_radians(90.0f),
         .fov = to_radians(90.0f),
         .aspect = mode->width / (float)mode->height,
         .znear = 0.1f,
-        .zfar = 500.0f,
+        .zfar = 1000.0f,
     };
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 
-    Mesh mesh = {0};
+    glfwSwapInterval(1);
 
     GLuint textures = load_textures();
+
+    generate_world(state.world);
 
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
@@ -456,7 +502,7 @@ int main(void) {
         float delta_time = new_time - old_time;
         old_time = new_time;
 
-        const Vec3 cam_forward = vec3_normalize((Vec3){
+        cam_forward = vec3_normalize((Vec3){
             .x = cosf(state.camera.yaw) * cosf(state.camera.pitch),
             .y = sinf(state.camera.pitch),
             .z = sinf(state.camera.yaw) * cosf(state.camera.pitch),
@@ -490,42 +536,19 @@ int main(void) {
             wish_dir.y -= 1;
         }
 
-        if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_LEFT)) {
-            iVec3 coord = {
-                state.camera.position.x + cam_forward.x,
-                state.camera.position.y + cam_forward.y,
-                state.camera.position.z + cam_forward.z,
-            };
-
-            if (get_block(&chunk, coord) != BLOCK_AIR) {
-                set_block(&chunk, coord, BLOCK_AIR);
-                chunk.is_dirty = true;
-            }
-        }
-
-        if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_RIGHT)) {
-            iVec3 coord = {
-                state.camera.position.x + cam_forward.x,
-                state.camera.position.y + cam_forward.y,
-                state.camera.position.z + cam_forward.z,
-            };
-
-            if (get_block(&chunk, coord) != BLOCK_DEBUG) {
-                set_block(&chunk, coord, BLOCK_DEBUG);
-                chunk.is_dirty = true;
-            }
-        }
-
         state.camera.position = vec3_add(
             state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
 
-        if (chunk.is_dirty) {
-            mesh_chunk(&chunk);
-            mesh_allocator_upload(&state.meshes, &mesh, state.vertices, state.vertex_count);
+        iVec3 player_coord = {
+            .x = state.camera.position.x / CHUNK_SIZE,
+            .y = state.camera.position.y / CHUNK_SIZE,
+            .z = state.camera.position.z / CHUNK_SIZE,
+        };
 
-            printf("Mesh allocated: {offset: %zu, length: %zu}\n", mesh.offset, mesh.length);
-
-            chunk.is_dirty = false;
+        Chunk *next = pop_next_dirty(player_coord);
+        if (next) {
+            mesh_chunk(next->coord);
+            mesh_allocator_upload(&state.meshes, &next->mesh, state.vertices, state.vertex_count);
         }
 
         Mat4 view;
@@ -535,7 +558,7 @@ int main(void) {
         mat4_perspective(&proj, state.camera.fov, state.camera.aspect, state.camera.znear,
                          state.camera.zfar);
 
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.7f, 0.7f, 0.9f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glBindVertexArray(state.meshes.vao);
@@ -548,8 +571,17 @@ int main(void) {
         uniform_mat4(state.shader, "u_view", &view);
         uniform_mat4(state.shader, "u_proj", &proj);
 
-        glDrawElementsBaseVertex(GL_TRIANGLES, (mesh.length / 4) * 6, GL_UNSIGNED_INT, NULL,
-                                 mesh.offset);
+        for (size_t i = 0; i < WORLD_VOLUME; i++) {
+            Chunk *chunk = &state.world->chunk[i];
+
+            if (chunk->mesh.length > 0) {
+                glUniform3i(glGetUniformLocation(state.shader, "u_chunk_position"), chunk->coord.x,
+                            chunk->coord.y, chunk->coord.z);
+
+                glDrawElementsBaseVertex(GL_TRIANGLES, (chunk->mesh.length / 4) * 6,
+                                         GL_UNSIGNED_INT, NULL, (int)chunk->mesh.offset);
+            }
+        }
 
         glUseProgram(0);
         glBindVertexArray(0);

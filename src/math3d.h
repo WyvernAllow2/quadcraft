@@ -10,6 +10,8 @@ float to_radians(float degrees);
 float to_degrees(float radians);
 
 float clamp(float value, float min, float max);
+int mod(int a, int b);
+float signf(float x);
 
 typedef struct Vec3 {
     float x;

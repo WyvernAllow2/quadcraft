@@ -20,6 +20,15 @@ float clamp(float value, float min, float max) {
     return value;
 }
 
+int mod(int a, int b) {
+    int r = a % b;
+    return r < 0 ? r + b : r;
+}
+
+float signf(float x) {
+    return (x > 0) - (x < 0);
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){
         .x = a.x + b.x,
