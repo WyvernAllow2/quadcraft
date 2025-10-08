@@ -395,6 +395,8 @@ static Chunk *pop_next_dirty(iVec3 player_coord) {
 
 Vec3 cam_forward;
 
+Block_Type place_block = 1;
+
 static void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
         Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
@@ -406,7 +408,16 @@ static void mouse_button_callback(GLFWwindow *window, int button, int action, in
     if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
         Hit_Result result = world_raycast(state.world, state.camera.position, cam_forward);
         if (result.did_hit) {
-            world_set_block(state.world, ivec3_add(result.position, result.normal), BLOCK_STONE);
+            world_set_block(state.world, ivec3_add(result.position, result.normal), place_block);
+        }
+    }
+}
+
+static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+    if (key >= GLFW_KEY_0 && key < GLFW_KEY_9 && action == GLFW_PRESS) {
+        place_block = (key - GLFW_KEY_0) + 1;
+        if (place_block > BLOCK_TYPE_COUNT) {
+            place_block = 1;
         }
     }
 }
@@ -433,6 +444,7 @@ int main(void) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
     state.window = glfwCreateWindow(state.window_w, state.window_h, "Quadcraft", monitor, NULL);
     if (!state.window) {
         fprintf(stderr, "glfwCreateWindow() failed\n");
@@ -460,6 +472,8 @@ int main(void) {
     if (glfwRawMouseMotionSupported()) {
         glfwSetInputMode(state.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
     }
+
+    glfwSetKeyCallback(state.window, key_callback);
 
     state.shader = compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag");
     if (!state.shader) {

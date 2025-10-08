@@ -22,6 +22,18 @@ static const Block_Properties BLOCK_TABLE[BLOCK_TYPE_COUNT] = {
         .is_transparent = false,
         .face_textures = FACES_SIDE_TOP_BOTTOM(TEXTURE_GRASS_SIDE, TEXTURE_GRASS, TEXTURE_DIRT),
     },
+    [BLOCK_PLANK] = {
+        .is_transparent = false,
+        .face_textures = FACES_UNIFORM(TEXTURE_PLANK),
+    },
+    [BLOCK_BRICK] = {
+        .is_transparent = false,
+        .face_textures = FACES_UNIFORM(TEXTURE_BRICK),
+    },
+    [BLOCK_LOG] = {
+        .is_transparent = false,
+        .face_textures = FACES_SIDE_TOP_BOTTOM(TEXTURE_LOG_SIDE, TEXTURE_LOG_TOP, TEXTURE_LOG_TOP),
+    }
 };
 /* clang-format on */
 
