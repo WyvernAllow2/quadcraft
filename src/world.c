@@ -168,10 +168,21 @@ Hit_Result world_raycast(World *world, Vec3 origin, Vec3 direction) {
         }
 
         if (world_get_block(world, map) != BLOCK_AIR) {
+            Vec3 p = {
+                map.x + 0.5f - step_dir.x * 0.5f,
+                map.y + 0.5f - step_dir.y * 0.5f,
+                map.z + 0.5f - step_dir.z * 0.5f,
+            };
+
+            Vec3 fnormal = vec3_from_ivec3(direction_to_ivec3(dir));
+
+            float t = (vec3_dot(fnormal, vec3_sub(p, origin))) / vec3_dot(fnormal, direction);
+
             Hit_Result result = {
                 .did_hit = true,
                 .position = {(float)map.x, (float)map.y, (float)map.z},
                 .normal = direction_to_ivec3(dir),
+                .t = t,
             };
             return result;
         }

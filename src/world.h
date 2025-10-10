@@ -47,6 +47,7 @@ typedef struct Hit_Result {
     bool did_hit;
     iVec3 position;
     iVec3 normal;
+    float t;
 } Hit_Result;
 
 Hit_Result world_raycast(World  *world, Vec3 origin, Vec3 direction);
