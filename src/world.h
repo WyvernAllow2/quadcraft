@@ -21,9 +21,9 @@ size_t get_block_index(iVec3 local_position);
 Block_Type chunk_get_block_unsafe(const Chunk *chunk, iVec3 local_position);
 void chunk_set_block_unsafe(Chunk *chunk, iVec3 local_position, Block_Type type);
 
-#define WORLD_SIZE_X (16)
-#define WORLD_SIZE_Y (10)
-#define WORLD_SIZE_Z (16)
+#define WORLD_SIZE_X (32)
+#define WORLD_SIZE_Y (14)
+#define WORLD_SIZE_Z (32)
 #define WORLD_VOLUME (WORLD_SIZE_X * WORLD_SIZE_Y * WORLD_SIZE_Z)
 
 typedef struct World {

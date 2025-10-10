@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "blocks.h"
 #include "camera.h"
@@ -14,6 +15,7 @@
 #include "world.h"
 
 #define GLFW_INCLUDE_NONE
+#include <FastNoiseLite.h>
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 #include <stb_image.h>
@@ -328,7 +330,137 @@ static void mesh_chunk(iVec3 chunk_coord) {
     }
 }
 
-static void generate_chunk(Chunk *chunk, iVec3 chunk_coord) {
+typedef struct Heightmap {
+    size_t size_x;
+    size_t size_z;
+    float *heights;
+} Heightmap;
+
+static float heightmap_sample(const Heightmap *map, size_t x, size_t z) {
+    assert(x < map->size_x && z < map->size_z);
+    return map->heights[x + z * map->size_x];
+}
+
+static void heightmap_set(const Heightmap *map, size_t x, size_t z, float value) {
+    assert(x >= 0 && z >= 0 && x < map->size_x && z < map->size_z);
+    map->heights[x + z * map->size_x] = value;
+}
+
+static Vec3 heightmap_grad(const Heightmap *map, size_t x, size_t z) {
+    assert(map != NULL);
+    assert(x < map->size_x && z < map->size_z);
+
+    float dx, dz;
+
+    // Compute derivative in x direction
+    if (x == 0) {
+        dx = heightmap_sample(map, x + 1, z) - heightmap_sample(map, x, z);
+    } else if (x == map->size_x - 1) {
+        dx = heightmap_sample(map, x, z) - heightmap_sample(map, x - 1, z);
+    } else {
+        dx = (heightmap_sample(map, x + 1, z) - heightmap_sample(map, x - 1, z)) * 0.5f;
+    }
+
+    // Compute derivative in z direction
+    if (z == 0) {
+        dz = heightmap_sample(map, x, z + 1) - heightmap_sample(map, x, z);
+    } else if (z == map->size_z - 1) {
+        dz = heightmap_sample(map, x, z) - heightmap_sample(map, x, z - 1);
+    } else {
+        dz = (heightmap_sample(map, x, z + 1) - heightmap_sample(map, x, z - 1)) * 0.5f;
+    }
+
+    Vec3 grad = {dx, 0.0f, dz};
+    return grad;
+}
+
+static void heightmap_erode(Heightmap *map, float talus, size_t iterations) {
+    assert(map != NULL);
+
+    for (size_t it = 0; it < iterations; ++it) {
+        // Create a temporary copy of the heightmap to store changes
+        float *delta = (float *)calloc(map->size_x * map->size_z, sizeof(float));
+        if (!delta)
+            return;  // allocation failed
+
+        for (size_t z = 0; z < map->size_z; ++z) {
+            for (size_t x = 0; x < map->size_x; ++x) {
+                float h = heightmap_sample(map, x, z);
+
+                // Check 4 neighbors (N, S, E, W)
+                struct {
+                    int dx, dz;
+                } neighbors[4] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+                for (int n = 0; n < 4; ++n) {
+                    int nx = (int)x + neighbors[n].dx;
+                    int nz = (int)z + neighbors[n].dz;
+
+                    if (nx >= 0 && nx < (int)map->size_x && nz >= 0 && nz < (int)map->size_z) {
+                        float nh = heightmap_sample(map, nx, nz);
+                        float diff = h - nh;
+
+                        if (diff > talus) {
+                            float amount = (diff - talus) * 0.5f;  // move half of excess slope
+                            delta[x + z * map->size_x] -= amount;
+                            delta[nx + nz * map->size_x] += amount;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply changes
+        for (size_t i = 0; i < map->size_x * map->size_z; ++i) {
+            map->heights[i] += delta[i];
+        }
+
+        free(delta);
+    }
+}
+
+static Heightmap generate_heightmap(void) {
+    fnl_state mountain_noise = fnlCreateState();
+    mountain_noise.noise_type = FNL_NOISE_OPENSIMPLEX2S;
+    mountain_noise.fractal_type = FNL_FRACTAL_RIDGED;
+    mountain_noise.octaves = 5;
+    mountain_noise.frequency = 0.005f;
+    mountain_noise.seed = time(NULL);
+
+    fnl_state hill_noise = fnlCreateState();
+    mountain_noise.noise_type = FNL_NOISE_OPENSIMPLEX2S;
+    mountain_noise.fractal_type = FNL_FRACTAL_FBM;
+    mountain_noise.octaves = 5;
+    mountain_noise.frequency = 0.003f;
+    mountain_noise.seed = time(NULL);
+
+    Heightmap map = {
+        .size_x = WORLD_SIZE_X * CHUNK_SIZE,
+        .size_z = WORLD_SIZE_X * CHUNK_SIZE,
+    };
+
+    float sea_level = 100;
+    float mountain_height = 300;
+
+    map.heights = malloc(sizeof(float) * map.size_x * map.size_z);
+    for (size_t z = 0; z < map.size_z; z++) {
+        for (size_t x = 0; x < map.size_x; x++) {
+            float mountain_value = fnlGetNoise2D(&mountain_noise, x, z) * 0.5f + 0.5f;
+
+            float height = sea_level + (mountain_value * mountain_height);
+
+            height += (fnlGetNoise2D(&hill_noise, x, z) * 0.5 + 0.5) * 10;
+
+            heightmap_set(&map, x, z, height);
+        }
+    }
+
+    heightmap_erode(&map, 32.0f, 1000);
+
+    return map;
+}
+
+static void generate_chunk(Chunk *chunk, iVec3 chunk_coord, Heightmap *heightmap) {
     chunk->is_dirty = false;
     chunk->mesh.length = 0;
     chunk->mesh.offset = 0;
@@ -346,11 +478,22 @@ static void generate_chunk(Chunk *chunk, iVec3 chunk_coord) {
                 iVec3 local_pos = {x, y, z};
                 iVec3 block_position = ivec3_add(chunk_offset, local_pos);
 
-                int height = 100;
+                int height = floorf(heightmap_sample(heightmap, (size_t)block_position.x,
+                                                     (size_t)block_position.z));
+
                 if (block_position.y > height) {
                     chunk_set_block_unsafe(chunk, local_pos, BLOCK_AIR);
                 } else if (block_position.y == height) {
-                    chunk_set_block_unsafe(chunk, local_pos, BLOCK_GRASS);
+                    Vec3 grad = heightmap_grad(heightmap, (size_t)block_position.x,
+                                               (size_t)block_position.z);
+
+                    float grad_len = vec3_len(grad);
+
+                    if (grad_len > 1.0f) {
+                        chunk_set_block_unsafe(chunk, local_pos, BLOCK_STONE);
+                    } else {
+                        chunk_set_block_unsafe(chunk, local_pos, BLOCK_GRASS);
+                    }
                 } else {
                     chunk_set_block_unsafe(chunk, local_pos, BLOCK_DIRT);
                 }
@@ -360,16 +503,20 @@ static void generate_chunk(Chunk *chunk, iVec3 chunk_coord) {
 }
 
 static void generate_world(World *world) {
+    Heightmap heightmap = generate_heightmap();
+
     for (int z = 0; z < WORLD_SIZE_Z; z++) {
         for (int y = 0; y < WORLD_SIZE_Y; y++) {
             for (int x = 0; x < WORLD_SIZE_X; x++) {
                 iVec3 coord = {x, y, z};
                 Chunk *chunk = world_get_chunk_unsafe(world, coord);
-                generate_chunk(chunk, coord);
+                generate_chunk(chunk, coord, &heightmap);
                 world_mark_chunk_dirty(world, chunk);
             }
         }
     }
+
+    free(heightmap.heights);
 }
 
 static Chunk *pop_next_dirty(iVec3 player_coord) {
@@ -433,8 +580,8 @@ static void key_callback(GLFWwindow *window, int key, int scancode, int action, 
     (void)mods;
 
     if (key >= GLFW_KEY_0 && key < GLFW_KEY_9 && action == GLFW_PRESS) {
-        place_block = (key - GLFW_KEY_0) + 1;
-        if (place_block > BLOCK_TYPE_COUNT) {
+        place_block = (key - GLFW_KEY_0);
+        if (place_block >= BLOCK_TYPE_COUNT) {
             place_block = 1;
         }
     }
@@ -610,10 +757,8 @@ static void update_collision(AABB *e, Vec3 *velocity, float delta_time) {
                     iVec3 posv = {ix, iy, iz};
 
                     Block_Type type = world_get_block(state.world, posv);
-
-                    if (type == BLOCK_AIR) {
+                    if (type == BLOCK_AIR)
                         continue;
-                    }
 
                     AABB block_collider = {
                         .position = (Vec3){ix, iy, iz},
@@ -627,50 +772,43 @@ static void update_collision(AABB *e, Vec3 *velocity, float delta_time) {
                             fprintf(stderr, "Too many colliders\n");
                             break;
                         }
-
                         potential_collisions[collision_count++] = collision;
                     }
                 }
             }
         }
 
-        if (collision_count == 0) {
+        if (collision_count == 0)
             break;
-        }
 
+        // Find earliest collision
         int min_idx = 0;
         for (int i = 1; i < collision_count; i++) {
             if (potential_collisions[i].entry_time < potential_collisions[min_idx].entry_time)
                 min_idx = i;
         }
 
-        float entry_time = potential_collisions[min_idx].entry_time - 0.01f;
-        if (entry_time < 0.0f) {
-            entry_time = 0.0f;
-        }
+        float entry_time = potential_collisions[min_idx].entry_time - 0.05f;
+        if (entry_time < 0.0f) entry_time = 0.0f;
 
         Vec3 normal = potential_collisions[min_idx].normal;
 
-        if (normal.x) {
-            velocity->x = 0.0f;
-            e->position.x += adjusted_velocity.x * entry_time;
-        }
+        // Move to contact point
+        e->position.x += adjusted_velocity.x * entry_time;
+        e->position.y += adjusted_velocity.y * entry_time;
+        e->position.z += adjusted_velocity.z * entry_time;
 
-        if (normal.y) {
-            velocity->y = 0.0f;
-            e->position.y += adjusted_velocity.y * entry_time;
-        }
+        // Slide: project velocity along surface
+        float dot = velocity->x * normal.x + velocity->y * normal.y + velocity->z * normal.z;
+        velocity->x -= dot * normal.x;
+        velocity->y -= dot * normal.y;
+        velocity->z -= dot * normal.z;
 
-        if (normal.z) {
-            velocity->z = 0.0f;
-            e->position.z += adjusted_velocity.z * entry_time;
-        }
-
-        if (normal.y > 0.0f) {
+        if (normal.y > 0.0f)
             on_ground = true;
-        }
     }
 
+    // Final move with updated (possibly slid) velocity
     e->position.x += velocity->x * delta_time;
     e->position.y += velocity->y * delta_time;
     e->position.z += velocity->z * delta_time;
@@ -749,7 +887,7 @@ int main(void) {
     state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
     state.vertex_count = 0;
 
-    mesh_allocator_init(&state.allocator, MAX_QUADS * 25);
+    mesh_allocator_init(&state.allocator, MAX_QUADS * 50);
 
     state.camera = (Camera){
         .position = {0, 120, 0},
@@ -805,7 +943,7 @@ int main(void) {
     state.camera.roll = 0.0f;
 
     state.player_aabb = (AABB){
-        .position = {0, 140, 0},
+        .position = {(WORLD_SIZE_X * CHUNK_SIZE) / 2.0f, 320, (WORLD_SIZE_X * CHUNK_SIZE) / 2.0f},
         .size = {0.6f, 1.8f, 0.6f},
     };
 
@@ -861,47 +999,21 @@ int main(void) {
 
         wish_dir = vec3_normalize(wish_dir);
 
-        const float MAX_SPEED = 6.0f;
-        const float MAX_ACCEL = 5.0f * MAX_SPEED;
+        const float MAX_SPEED = 4.0f;
         const float GRAVITY = 9.81f * 2.2f;
-        const float JUMP_HEIGHT = 1.1f;
-        const float MAX_AIR_SPEED = 1.3f;
-        const float FRICTION = 15.0f;
+        const float JUMP_HEIGHT = 1.2f;
 
-        /* We have to apply gravity even if the player is already on the ground, otherwise they will
-         * oscillate up and down and `on_ground` will flicker between true and false rapidly. Swept
-         * AABB should prevent tunneling so this is okay. */
+        state.player_velocity.x = wish_dir.x * MAX_SPEED;
+        state.player_velocity.z = wish_dir.z * MAX_SPEED;
+
+        /* We have to apply gravity even if the player is already on the ground, otherwise they
+         * will oscillate up and down and `on_ground` will flicker between true and false
+         * rapidly. Swept AABB should prevent tunneling so this is okay. */
         state.player_velocity.y -= GRAVITY * delta_time;
 
         if (on_ground) {
-            float speed = vec3_len(state.player_velocity);
-            if (speed > 0) {
-                float drop = speed * FRICTION * delta_time;
-                float new_speed = fmaxf(speed - drop, 0);
-                state.player_velocity.x *= new_speed / speed;
-                state.player_velocity.z *= new_speed / speed;
-            }
-
-            float wishspeed = MAX_SPEED;
-            float current_speed = vec3_dot(state.player_velocity, wish_dir);
-            float addspeed = wishspeed - current_speed;
-            if (addspeed > 0) {
-                float accelspeed = fminf(MAX_ACCEL * delta_time * wishspeed, addspeed);
-                state.player_velocity =
-                    vec3_add(state.player_velocity, vec3_scale(wish_dir, accelspeed));
-            }
-
-            if (glfwGetKey(state.window, GLFW_KEY_SPACE)) {
+            if (glfwGetKey(state.window, GLFW_KEY_SPACE) && on_ground) {
                 state.player_velocity.y = sqrtf(2.0f * GRAVITY * JUMP_HEIGHT);
-            }
-        } else {
-            float wishspeed = MAX_AIR_SPEED;
-            float current_speed = vec3_dot(state.player_velocity, wish_dir);
-            float addspeed = wishspeed - current_speed;
-            if (addspeed > 0) {
-                float accelspeed = fminf(MAX_ACCEL * delta_time * wishspeed, addspeed);
-                state.player_velocity =
-                    vec3_add(state.player_velocity, vec3_scale(wish_dir, accelspeed));
             }
         }
 
@@ -933,11 +1045,13 @@ int main(void) {
             push_cube(posf, (Vec3){1.0f, 1.0f, 1.0f}, (Vec3){1.0f, 1.0f, 1.0f});
         }
 
-        Chunk *next = pop_next_dirty(player_coord);
-        if (next) {
-            mesh_chunk(next->coord);
-            mesh_allocator_upload(&state.allocator, &next->mesh, state.vertices,
-                                  state.vertex_count);
+        for (int i = 0; i < 2; i++) {
+            Chunk *next = pop_next_dirty(player_coord);
+            if (next) {
+                mesh_chunk(next->coord);
+                mesh_allocator_upload(&state.allocator, &next->mesh, state.vertices,
+                                      state.vertex_count);
+            }
         }
 
         glClearColor(0.7f, 0.7f, 0.9f, 1.0f);
