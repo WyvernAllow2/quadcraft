@@ -6,7 +6,6 @@ void camera_update(Camera *camera) {
     camera->pitch = clamp(camera->pitch, -HALF_PI + 1e-6f, HALF_PI - 1e-6f);
 
     camera->yaw = fmodf(camera->yaw + TAU, TAU);
-    camera->roll = fmodf(camera->roll + TAU, TAU);
 
     camera->forward = vec3_normalize((Vec3){
         .x = cosf(camera->yaw) * cosf(camera->pitch),
