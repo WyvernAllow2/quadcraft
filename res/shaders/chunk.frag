@@ -23,7 +23,7 @@ void main() {
     vec3 diffuse = diffuse_strength * light_color;
 
     float fog_end = 200.0;
-    float fog_density = 0.3;
+    float fog_density = 0.2;
 
     float dist = length(v_position - v_camera_position);
     float dist_ratio = 4.0 * dist / fog_end;

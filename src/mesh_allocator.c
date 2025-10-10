@@ -126,6 +126,8 @@ void mesh_allocator_init(Mesh_Allocator *allocator, size_t quad_capacity) {
     size_t vertex_buffer_size = allocator->quad_capacity * 4 * sizeof(Vertex);
     size_t index_buffer_size = MAX_INDICES * sizeof(uint32_t);
 
+    fprintf(stderr, "Allocated %zu KiB of vertex buffer memory\n", vertex_buffer_size / 1024);
+
     glGenVertexArrays(1, &allocator->vao);
     glGenBuffers(1, &allocator->vbo);
     glGenBuffers(1, &allocator->ebo);
