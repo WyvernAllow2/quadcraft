@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "blocks.h"
 #include "camera.h"
@@ -17,8 +18,25 @@
 #include <glad/gl.h>
 #include <stb_image.h>
 
-#define CAMERA_SPEED 5.0f
+#define CAMERA_SPEED 10.0f
 #define MOUSE_SENSITIVITY 0.125f
+
+typedef struct AABB {
+    Vec3 position;
+    Vec3 size;
+} AABB;
+
+static bool aabb_vs_aabb(const AABB *a, const AABB *b) {
+    Vec3 a_min_extent = a->position;
+    Vec3 a_max_extent = vec3_add(a->position, a->size);
+
+    Vec3 b_min_extent = b->position;
+    Vec3 b_max_extent = vec3_add(b->position, b->size);
+
+    return (a_min_extent.x < b_max_extent.x && a_max_extent.x > b_min_extent.x) &&
+           (a_min_extent.y < b_max_extent.y && a_max_extent.y > b_min_extent.y) &&
+           (a_min_extent.z < b_max_extent.z && a_max_extent.z > b_min_extent.z);
+}
 
 struct {
     int window_w;
@@ -38,6 +56,9 @@ struct {
 
     Mesh_Allocator allocator;
     World *world;
+
+    AABB player_aabb;
+    Vec3 player_velocity;
 } state;
 
 static void glfw_error_callback(int error_code, const char *description) {
@@ -381,6 +402,7 @@ static Chunk *pop_next_dirty(iVec3 player_coord) {
 }
 
 Block_Type place_block = 1;
+Hit_Result result;
 
 static void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
     (void)window;
@@ -388,16 +410,19 @@ static void mouse_button_callback(GLFWwindow *window, int button, int action, in
     (void)mods;
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        Hit_Result result = world_raycast(state.world, state.camera.position, state.camera.forward);
         if (result.did_hit) {
             world_set_block(state.world, result.position, BLOCK_AIR);
         }
     }
 
     if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
-        Hit_Result result = world_raycast(state.world, state.camera.position, state.camera.forward);
         if (result.did_hit) {
-            world_set_block(state.world, ivec3_add(result.position, result.normal), place_block);
+            iVec3 place_pos = ivec3_add(result.position, result.normal);
+
+            AABB resultant_aabb = {vec3_from_ivec3(place_pos), .size = {1, 1, 1}};
+            if (!aabb_vs_aabb(&state.player_aabb, &resultant_aabb)) {
+                world_set_block(state.world, place_pos, place_block);
+            }
         }
     }
 }
@@ -413,6 +438,250 @@ static void key_callback(GLFWwindow *window, int key, int scancode, int action, 
             place_block = 1;
         }
     }
+}
+
+typedef struct DebugVertex {
+    Vec3 position;
+    Vec3 color;
+} DebugVertex;
+
+#define MAX_LINES 10000
+int debug_vertex_count = 0;
+DebugVertex *debug_vertices;
+
+static void push_line(Vec3 start, Vec3 end, Vec3 color) {
+    if (debug_vertex_count + 2 > MAX_LINES) {
+        return;
+    }
+
+    debug_vertices[debug_vertex_count++] = (DebugVertex){
+        .position = start,
+        .color = color,
+    };
+
+    debug_vertices[debug_vertex_count++] = (DebugVertex){
+        .position = end,
+        .color = color,
+    };
+}
+
+static void push_cube(Vec3 position, Vec3 size, Vec3 color) {
+    Vec3 max = vec3_add(position, size);
+
+    Vec3 p[8] = {
+        {position.x, position.y, position.z},
+        {max.x, position.y, position.z},
+        {max.x, max.y, position.z},
+        {position.x, max.y, position.z},
+        {position.x, position.y, max.z},
+        {max.x, position.y, max.z},
+        {max.x, max.y, max.z},
+        {position.x, max.y, max.z},
+    };
+
+    push_line(p[0], p[1], color);
+    push_line(p[1], p[2], color);
+    push_line(p[2], p[3], color);
+    push_line(p[3], p[0], color);
+
+    push_line(p[4], p[5], color);
+    push_line(p[5], p[6], color);
+    push_line(p[6], p[7], color);
+    push_line(p[7], p[4], color);
+
+    push_line(p[0], p[4], color);
+    push_line(p[1], p[5], color);
+    push_line(p[2], p[6], color);
+    push_line(p[3], p[7], color);
+}
+
+typedef struct Collision_Result {
+    bool did_collide;
+    float entry_time;
+    Vec3 normal;
+} Collision_Result;
+
+static Collision_Result no_collision(void) {
+    return (Collision_Result){
+        .did_collide = false,
+        .entry_time = 1.0f,
+        .normal = {0.0f, 0.0f, 0.0f},
+    };
+}
+
+static float remap_time(float inv_entry, float velocity) {
+    if (velocity == 0.0f) {
+        return (inv_entry > 0) ? -INFINITY : INFINITY;
+    } else {
+        return inv_entry / velocity;
+    }
+}
+
+static Collision_Result aabb_collide(const AABB *dyn, const AABB *stat, Vec3 velocity) {
+    Vec3 dyn_min = dyn->position;
+    Vec3 dyn_max = vec3_add(dyn->position, dyn->size);
+
+    Vec3 stat_min = stat->position;
+    Vec3 stat_max = vec3_add(stat->position, stat->size);
+
+    float vx = velocity.x;
+    float vy = velocity.y;
+    float vz = velocity.z;
+
+    float inv_x_entry = (vx > 0.0f) ? stat_min.x - dyn_max.x : stat_max.x - dyn_min.x;
+    float inv_x_exit = (vx > 0.0f) ? stat_max.x - dyn_min.x : stat_min.x - dyn_max.x;
+
+    float inv_y_entry = (vy > 0.0f) ? stat_min.y - dyn_max.y : stat_max.y - dyn_min.y;
+    float inv_y_exit = (vy > 0.0f) ? stat_max.y - dyn_min.y : stat_min.y - dyn_max.y;
+
+    float inv_z_entry = (vz > 0.0f) ? stat_min.z - dyn_max.z : stat_max.z - dyn_min.z;
+    float inv_z_exit = (vz > 0.0f) ? stat_max.z - dyn_min.z : stat_min.z - dyn_max.z;
+
+    /* clang-format off */
+    float x_entry = remap_time(inv_x_entry, velocity.x);
+    float x_exit =  remap_time(inv_x_exit, velocity.x);
+
+    float y_entry = remap_time(inv_y_entry, velocity.y);
+    float y_exit =  remap_time(inv_y_exit, velocity.y);
+
+    float z_entry = remap_time(inv_z_entry, velocity.z);
+    float z_exit =  remap_time(inv_z_exit, velocity.z);
+    /* clang-format on */
+
+    if (x_entry < 0.0f && y_entry < 0.0f && z_entry < 0.0f) {
+        return no_collision();
+    }
+
+    if (x_entry > 1.0f || y_entry > 1.0f || z_entry > 1.0f) {
+        return no_collision();
+    }
+
+    float entry = fmaxf(x_entry, fmax(y_entry, z_entry));
+    float exit = fminf(x_exit, fminf(y_exit, z_exit));
+
+    if (entry > exit) {
+        return no_collision();
+    }
+
+    Vec3 normal = {0};
+    if (entry == x_entry) {
+        normal.x = (vx > 0) ? -1 : 1;
+    }
+
+    if (entry == y_entry) {
+        normal.y = (vy > 0) ? -1 : 1;
+    }
+
+    if (entry == z_entry) {
+        normal.z = (vz > 0) ? -1 : 1;
+    }
+
+    return (Collision_Result){
+        .entry_time = entry,
+        .normal = normal,
+        .did_collide = true,
+    };
+}
+
+bool on_ground = false;
+
+static void update_collision(AABB *e, Vec3 *velocity, float delta_time) {
+    on_ground = false;
+    for (int step = 0; step < 3; step++) {
+        Vec3 adjusted_velocity = {
+            velocity->x * delta_time,
+            velocity->y * delta_time,
+            velocity->z * delta_time,
+        };
+
+        int size = 3;
+
+        int start_x = e->position.x - size;
+        int start_y = e->position.y - size;
+        int start_z = e->position.z - size;
+
+        const int MAX_COLLISIONS = 100;
+        Collision_Result potential_collisions[MAX_COLLISIONS];
+        int collision_count = 0;
+
+        for (int ix = start_x; ix < start_x + size * 2; ix++) {
+            for (int iy = start_y; iy < start_y + size * 2; iy++) {
+                for (int iz = start_z; iz < start_z + size * 2; iz++) {
+                    iVec3 posv = {ix, iy, iz};
+
+                    Block_Type type = world_get_block(state.world, posv);
+
+                    if (type == BLOCK_AIR) {
+                        continue;
+                    }
+
+                    AABB block_collider = {
+                        .position = (Vec3){ix, iy, iz},
+                        .size = (Vec3){1, 1, 1},
+                    };
+
+                    Collision_Result collision =
+                        aabb_collide(e, &block_collider, adjusted_velocity);
+                    if (collision.did_collide) {
+                        if (collision_count >= MAX_COLLISIONS) {
+                            fprintf(stderr, "Too many colliders\n");
+                            break;
+                        }
+
+                        potential_collisions[collision_count++] = collision;
+                    }
+                }
+            }
+        }
+
+        if (collision_count == 0) {
+            break;
+        }
+
+        int min_idx = 0;
+        for (int i = 1; i < collision_count; i++) {
+            if (potential_collisions[i].entry_time < potential_collisions[min_idx].entry_time)
+                min_idx = i;
+        }
+
+        float entry_time = potential_collisions[min_idx].entry_time - 0.01f;
+        if (entry_time < 0.0f) {
+            entry_time = 0.0f;
+        }
+
+        Vec3 normal = potential_collisions[min_idx].normal;
+
+        if (normal.x) {
+            velocity->x = 0.0f;
+            e->position.x += adjusted_velocity.x * entry_time;
+        }
+
+        if (normal.y) {
+            velocity->y = 0.0f;
+            e->position.y += adjusted_velocity.y * entry_time;
+        }
+
+        if (normal.z) {
+            velocity->z = 0.0f;
+            e->position.z += adjusted_velocity.z * entry_time;
+        }
+
+        if (normal.y > 0.0f) {
+            on_ground = true;
+        }
+    }
+
+    e->position.x += velocity->x * delta_time;
+    e->position.y += velocity->y * delta_time;
+    e->position.z += velocity->z * delta_time;
+}
+
+static float lerp(float v0, float v1, float t) {
+    return (1 - t) * v0 + t * v1;
+}
+
+static float smooth_damp(float a, float b, float k, float dt) {
+    return lerp(a, b, 1.0f - powf(k, dt));
 }
 
 int main(void) {
@@ -476,6 +745,7 @@ int main(void) {
 
     state.world = malloc(sizeof(World));
     state.world->dirty_chunk_count = 0;
+    memset(state.world, 0, sizeof(World));
     state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
     state.vertex_count = 0;
 
@@ -500,41 +770,153 @@ int main(void) {
 
     generate_world(state.world);
 
+    GLuint debug_shader =
+        compile_program_from_files("res/shaders/debug.vert", "res/shaders/debug.frag");
+    if (!debug_shader) {
+        fprintf(stderr, "compile_program_from_files() failed\n");
+        return EXIT_FAILURE;
+    }
+
+    debug_vertices = malloc(sizeof(DebugVertex) * MAX_LINES);
+
+    GLuint debug_vao;
+    GLuint debug_vbo;
+
+    glGenVertexArrays(1, &debug_vao);
+    glGenBuffers(1, &debug_vbo);
+
+    glBindVertexArray(debug_vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, debug_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(DebugVertex) * MAX_LINES, NULL, GL_DYNAMIC_DRAW);
+
+    /* Position attribute */
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                          (const void *)offsetof(DebugVertex, position));
+
+    /* Color attribute */
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                          (const void *)offsetof(DebugVertex, color));
+
+    glBindVertexArray(0);
+
+    state.camera.roll = 0.0f;
+
+    state.player_aabb = (AABB){
+        .position = {0, 140, 0},
+        .size = {0.6f, 1.8f, 0.6f},
+    };
+
+    state.player_velocity = (Vec3){0.0f, 0.0f, 0.0f};
+
+    float bob_time = 0.0f;
+    const float BASE_CAM_Y = 1.65;
+    float cam_y = BASE_CAM_Y;
+    float target_cam_y = cam_y;
+
+    float target_roll = 0.0f;
+
     float old_time = glfwGetTime();
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
+        debug_vertex_count = 0;
 
         float new_time = glfwGetTime();
         float delta_time = new_time - old_time;
         old_time = new_time;
 
         Vec3 wish_dir = {0};
+        float lmove = 0.0f;
         if (glfwGetKey(state.window, GLFW_KEY_W)) {
-            wish_dir = vec3_add(wish_dir, state.camera.forward);
+            wish_dir.x += state.camera.forward.x;
+            wish_dir.z += state.camera.forward.z;
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_S)) {
-            wish_dir = vec3_sub(wish_dir, state.camera.forward);
+            wish_dir.x -= state.camera.forward.x;
+            wish_dir.z -= state.camera.forward.z;
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_D)) {
-            wish_dir = vec3_add(wish_dir, state.camera.right);
+            wish_dir.x += state.camera.right.x;
+            wish_dir.z += state.camera.right.z;
+            lmove += 1.0f;
         }
 
         if (glfwGetKey(state.window, GLFW_KEY_A)) {
-            wish_dir = vec3_sub(wish_dir, state.camera.right);
+            wish_dir.x -= state.camera.right.x;
+            wish_dir.z -= state.camera.right.z;
+            lmove -= 1.0f;
         }
 
-        if (glfwGetKey(state.window, GLFW_KEY_SPACE)) {
-            wish_dir.y += 1;
+        if (fabs(lmove) == 0.0f) {
+            target_roll = 0.0f;
+        } else {
+            target_roll = signf(lmove) * -to_radians(3.0f);
         }
 
-        if (glfwGetKey(state.window, GLFW_KEY_LEFT_SHIFT)) {
-            wish_dir.y -= 1;
+        state.camera.roll = smooth_damp(state.camera.roll, target_roll, 0.1f, delta_time);
+
+        wish_dir = vec3_normalize(wish_dir);
+
+        const float MAX_SPEED = 6.0f;
+        const float MAX_ACCEL = 5.0f * MAX_SPEED;
+        const float GRAVITY = 9.81f * 2.2f;
+        const float JUMP_HEIGHT = 1.1f;
+        const float MAX_AIR_SPEED = 1.3f;
+        const float FRICTION = 15.0f;
+
+        /* We have to apply gravity even if the player is already on the ground, otherwise they will
+         * oscillate up and down and `on_ground` will flicker between true and false rapidly. Swept
+         * AABB should prevent tunneling so this is okay. */
+        state.player_velocity.y -= GRAVITY * delta_time;
+
+        if (on_ground) {
+            float speed = vec3_len(state.player_velocity);
+            if (speed > 0) {
+                float drop = speed * FRICTION * delta_time;
+                float new_speed = fmaxf(speed - drop, 0);
+                state.player_velocity.x *= new_speed / speed;
+                state.player_velocity.z *= new_speed / speed;
+            }
+
+            float wishspeed = MAX_SPEED;
+            float current_speed = vec3_dot(state.player_velocity, wish_dir);
+            float addspeed = wishspeed - current_speed;
+            if (addspeed > 0) {
+                float accelspeed = fminf(MAX_ACCEL * delta_time * wishspeed, addspeed);
+                state.player_velocity =
+                    vec3_add(state.player_velocity, vec3_scale(wish_dir, accelspeed));
+            }
+
+            if (glfwGetKey(state.window, GLFW_KEY_SPACE)) {
+                state.player_velocity.y = sqrtf(2.0f * GRAVITY * JUMP_HEIGHT);
+            }
+        } else {
+            float wishspeed = MAX_AIR_SPEED;
+            float current_speed = vec3_dot(state.player_velocity, wish_dir);
+            float addspeed = wishspeed - current_speed;
+            if (addspeed > 0) {
+                float accelspeed = fminf(MAX_ACCEL * delta_time * wishspeed, addspeed);
+                state.player_velocity =
+                    vec3_add(state.player_velocity, vec3_scale(wish_dir, accelspeed));
+            }
         }
 
-        state.camera.position = vec3_add(
-            state.camera.position, vec3_scale(vec3_normalize(wish_dir), CAMERA_SPEED * delta_time));
+        if (vec3_len(wish_dir) > 0.0f && on_ground) {
+            bob_time += delta_time;
+            target_cam_y = BASE_CAM_Y + sinf(bob_time * 14.0f) * 0.23f;
+        } else {
+            target_cam_y = BASE_CAM_Y;
+        }
+
+        cam_y = smooth_damp(cam_y, target_cam_y, 0.01f, delta_time);
+
+        update_collision(&state.player_aabb, &state.player_velocity, delta_time);
+
+        state.camera.position = vec3_add(state.player_aabb.position, (Vec3){0.3f, cam_y, 0.3f});
 
         camera_update(&state.camera);
 
@@ -543,6 +925,13 @@ int main(void) {
             .y = state.camera.position.y / CHUNK_SIZE,
             .z = state.camera.position.z / CHUNK_SIZE,
         };
+
+        result = world_raycast(state.world, state.camera.position, state.camera.forward);
+        if (result.did_hit) {
+            Vec3 posf = vec3_from_ivec3(result.position);
+
+            push_cube(posf, (Vec3){1.0f, 1.0f, 1.0f}, (Vec3){1.0f, 1.0f, 1.0f});
+        }
 
         Chunk *next = pop_next_dirty(player_coord);
         if (next) {
@@ -576,8 +965,22 @@ int main(void) {
             }
         }
 
+        // push_cube(player_aabb.position, player_aabb.size, (Vec3){1.0, 1.0, 1.0});
+
         glUseProgram(0);
         glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, debug_vbo);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(DebugVertex) * debug_vertex_count,
+                        debug_vertices);
+
+        glUseProgram(debug_shader);
+        glBindVertexArray(debug_vao);
+        uniform_mat4(debug_shader, "u_view", &state.camera.view);
+        uniform_mat4(debug_shader, "u_proj", &state.camera.proj);
+
+        glDrawArrays(GL_LINES, 0, debug_vertex_count);
+
+        glUseProgram(0);
 
         glfwSwapBuffers(state.window);
     }

@@ -29,6 +29,10 @@ float signf(float x) {
     return (x > 0) - (x < 0);
 }
 
+int signi(int x) {
+    return (x > 0) - (x < 0);
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){
         .x = a.x + b.x,
@@ -164,6 +168,14 @@ iVec3 ivec3_div(iVec3 v, int s) {
         .x = v.x / s,
         .y = v.y / s,
         .z = v.z / s,
+    };
+}
+
+iVec3 ivec3_sign(iVec3 v) {
+    return (iVec3){
+        .x = signi(v.x),
+        .y = signi(v.y),
+        .z = signi(v.z),
     };
 }
 
