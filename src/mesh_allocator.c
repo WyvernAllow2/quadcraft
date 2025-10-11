@@ -123,7 +123,7 @@ void mesh_allocator_init(Mesh_Allocator *allocator, size_t quad_capacity) {
         .quad_capacity = quad_capacity,
     };
 
-    size_t vertex_buffer_size = allocator->quad_capacity * 4 * sizeof(Vertex);
+    size_t vertex_buffer_size = allocator->quad_capacity * 4 * sizeof(uint32_t);
     size_t index_buffer_size = MAX_INDICES * sizeof(uint32_t);
 
     fprintf(stderr, "Allocated %zu KiB of vertex buffer memory\n", vertex_buffer_size / 1024);
@@ -151,19 +151,8 @@ void mesh_allocator_init(Mesh_Allocator *allocator, size_t quad_capacity) {
 
     free(indices);
 
-    /* Position attribute */
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (const void *)offsetof(Vertex, position));
-
-    /* Normal attribute */
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (const void *)offsetof(Vertex, normal));
-
-    /* Texture attribute */
-    glEnableVertexAttribArray(2);
-    glVertexAttribIPointer(2, 1, GL_INT, sizeof(Vertex), (const void *)offsetof(Vertex, texture));
+    glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), NULL);
 
     glBindVertexArray(0);
 
@@ -180,9 +169,9 @@ void mesh_allocator_free(Mesh_Allocator *allocator) {
     free(allocator->free);
 }
 
-static void upload_mesh(Mesh_Allocator *allocator, Mesh mesh, Vertex *vertices) {
-    GLsizeiptr nbytes_vertex_data = (GLsizeiptr)(sizeof(Vertex) * mesh.length);
-    GLsizeiptr nbytes_offset = (GLsizeiptr)(sizeof(Vertex) * mesh.offset);
+static void upload_mesh(Mesh_Allocator *allocator, Mesh mesh, uint32_t *vertices) {
+    GLsizeiptr nbytes_vertex_data = (GLsizeiptr)(sizeof(uint32_t) * mesh.length);
+    GLsizeiptr nbytes_offset = (GLsizeiptr)(sizeof(uint32_t) * mesh.offset);
 
     glBindBuffer(GL_ARRAY_BUFFER, allocator->vbo);
     glBufferSubData(GL_ARRAY_BUFFER, nbytes_offset, nbytes_vertex_data, vertices);
@@ -190,7 +179,7 @@ static void upload_mesh(Mesh_Allocator *allocator, Mesh mesh, Vertex *vertices) 
     // fprintf(stderr, "Uploaded %zu KiB of vertex data\n", (size_t)nbytes_vertex_data / 1024);
 }
 
-void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, Vertex *vertices,
+void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, uint32_t *vertices,
                            size_t vertex_count) {
     assert(allocator != NULL);
     assert(mesh != NULL);

@@ -1,30 +1,42 @@
 #version 430
-layout(location = 0) in vec3 a_position;
-layout(location = 1) in vec3 a_normal;
-layout(location = 2) in int a_texture;
+layout(location = 0) in uint a_vertex;
 
 uniform mat4 u_view;
 uniform mat4 u_proj;
-
-out vec3 v_normal;
-out vec2 v_uv;
-
-flat out int v_texture;
-
 uniform ivec3 u_chunk_position;
 
-out vec3 v_camera_position;
-out vec3 v_position;
+out VS_OUT {
+    vec3 position;
+    vec3 normal;
+    vec3 uv;
+}
+vs_out;
+
+/* clang-format off */
+const vec3 NORMAL_TABLE[6] = vec3[](
+    vec3( 1,  0,  0),    /* DIR_POSITIVE_X */
+    vec3( 0,  1,  0),    /* DIR_POSITIVE_Y */
+    vec3( 0,  0,  1),    /* DIR_POSITIVE_Z */
+    vec3(-1,  0,  0),    /* DIR_NEGATIVE_X */
+    vec3( 0, -1,  0),    /* DIR_NEGATIVE_Y */
+    vec3( 0,  0, -1)     /* DIR_NEGATIVE_Z */
+);
+/* clang-format on */
 
 void main() {
-    mat4 inv_view = inverse(u_view);
-    v_camera_position = vec3(inv_view[3].xyz);
+    uint texture_id = a_vertex & 0x7FFu;
+    uint direction = (a_vertex >> 11) & 0x7u;
+    uint z = (a_vertex >> 14) & 0x3Fu;
+    uint y = (a_vertex >> 20) & 0x3Fu;
+    uint x = (a_vertex >> 26) & 0x3Fu;
 
-    v_position = a_position + u_chunk_position * 32.0;
+    vec3 position = vec3(x, y, z) + u_chunk_position * 32;
+    vec3 normal = NORMAL_TABLE[direction];
+    vec2 uv = vec2(dot(normal.xzy, position.zxx), position.y + normal.y * position.z);
 
-    gl_Position = u_proj * u_view * vec4(v_position, 1.0);
-    v_normal = a_normal;
+    vs_out.position = position;
+    vs_out.normal = normal;
+    vs_out.uv = vec3(uv, float(texture_id));
 
-    v_uv = vec2(dot(a_normal.xzy, a_position.zxx), a_position.y + a_normal.y * a_position.z);
-    v_texture = a_texture;
+    gl_Position = u_proj * u_view * vec4(position, 1.0);
 }

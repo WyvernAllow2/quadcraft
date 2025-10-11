@@ -53,7 +53,7 @@ struct {
     float old_mouse_y;
     bool first_mouse;
 
-    Vertex *vertices;
+    uint32_t *vertices;
     size_t vertex_count;
 
     Mesh_Allocator allocator;
@@ -159,6 +159,10 @@ static void uniform_int(GLuint program, const char *name, int value) {
     glUniform1i(glGetUniformLocation(program, name), value);
 }
 
+static void uniform_vec3(GLuint program, const char *name, Vec3 value) {
+    glUniform3f(glGetUniformLocation(program, name), value.x, value.y, value.z);
+}
+
 static GLuint load_textures(void) {
     stbi_set_flip_vertically_on_load(true);
 
@@ -250,15 +254,28 @@ static const iVec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
 };
 /* clang-format on */
 
-static void emit_face(iVec3 coord, Direction direction, Texture_ID texture) {
-    iVec3 normal = direction_to_ivec3(direction);
+static void emit_vertex(iVec3 coord, Direction direction, Texture_ID texture) {
+    assert(coord.x >= 0 && coord.y >= 0 && coord.z >= 0 && coord.x <= 32 && coord.y <= 32 &&
+           coord.z <= 32);
 
+    assert(direction >= 0 && direction < 6);
+    assert(texture >= 0 && texture < 2048);
+
+    uint32_t x = (uint32_t)coord.x;
+    uint32_t y = (uint32_t)coord.y;
+    uint32_t z = (uint32_t)coord.z;
+
+    uint32_t dir = (uint32_t)direction;
+    uint32_t texture_id = (uint32_t)texture;
+
+    uint32_t vertex = (x << 26) | (y << 20) | (z << 14) | (dir << 11) | texture_id;
+    state.vertices[state.vertex_count++] = vertex;
+}
+
+static void emit_face(iVec3 coord, Direction direction, Texture_ID texture) {
     for (size_t i = 0; i < 4; i++) {
-        state.vertices[state.vertex_count + i] = (Vertex){
-            .position = vec3_from_ivec3(ivec3_add(coord, FACE_VERTICES[direction][i])),
-            .normal = vec3_from_ivec3(normal),
-            .texture = texture,
-        };
+        iVec3 vertex_pos = ivec3_add(coord, FACE_VERTICES[direction][i]);
+        emit_vertex(vertex_pos, direction, texture);
     }
 
     state.vertex_count += 4;
@@ -758,7 +775,7 @@ typedef struct DebugVertex {
     Vec3 color;
 } DebugVertex;
 
-#define MAX_LINES 10000
+#define MAX_LINES 100000
 int debug_vertex_count = 0;
 DebugVertex *debug_vertices;
 
@@ -1046,10 +1063,10 @@ int main(void) {
     state.world = malloc(sizeof(World));
     state.world->dirty_chunk_count = 0;
     memset(state.world, 0, sizeof(World));
-    state.vertices = malloc(sizeof(Vertex) * MAX_VERTS);
+    state.vertices = malloc(sizeof(uint32_t) * MAX_VERTS);
     state.vertex_count = 0;
 
-    mesh_allocator_init(&state.allocator, MAX_QUADS * 100);
+    mesh_allocator_init(&state.allocator, MAX_QUADS * 500);
 
     state.camera = (Camera){
         .position = {0, 120, 0},
@@ -1241,6 +1258,7 @@ int main(void) {
 
         uniform_mat4(state.shader, "u_view", &state.camera.view);
         uniform_mat4(state.shader, "u_proj", &state.camera.proj);
+        uniform_vec3(state.shader, "u_camera_position", state.camera.position);
 
         for (size_t i = 0; i < WORLD_VOLUME; i++) {
             Chunk *chunk = &state.world->chunk[i];
@@ -1253,8 +1271,6 @@ int main(void) {
                                          GL_UNSIGNED_INT, NULL, (int)chunk->mesh.offset);
             }
         }
-
-        // push_cube(player_aabb.position, player_aabb.size, (Vec3){1.0, 1.0, 1.0});
 
         glUseProgram(0);
         glBindVertexArray(0);

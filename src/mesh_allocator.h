@@ -6,12 +6,6 @@
 
 #include "math3d.h"
 
-typedef struct Vertex {
-    Vec3 position;
-    Vec3 normal;
-    int texture;
-} Vertex;
-
 typedef struct Mesh {
     size_t offset;
     size_t length;
@@ -31,7 +25,7 @@ typedef struct Mesh_Allocator {
 
 void mesh_allocator_init(Mesh_Allocator *allocator, size_t quad_capacity);
 void mesh_allocator_free(Mesh_Allocator *allocator);
-void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, Vertex *vertices,
+void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, uint32_t *vertices,
                            size_t vertex_count);
 
 #endif /* MESH_ALLOCATOR_H */
