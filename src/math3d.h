@@ -37,6 +37,7 @@ typedef struct Mat4 {
 void mat4_identity(Mat4 *out);
 void mat4_look_at(Mat4 *out, Vec3 eye, Vec3 center, Vec3 up);
 void mat4_perspective(Mat4 *out, float fov, float aspect, float near, float far);
+void mat4_mul(Mat4 *out, const Mat4 *a, const Mat4 *b);
 
 typedef struct iVec3 {
     int x;

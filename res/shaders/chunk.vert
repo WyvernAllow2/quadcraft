@@ -1,8 +1,7 @@
 #version 430
 layout(location = 0) in uint a_vertex;
 
-uniform mat4 u_view;
-uniform mat4 u_proj;
+uniform mat4 u_view_proj;
 uniform ivec3 u_chunk_position;
 
 out VS_OUT {
@@ -38,5 +37,5 @@ void main() {
     vs_out.normal = normal;
     vs_out.uv = vec3(uv, float(texture_id));
 
-    gl_Position = u_proj * u_view * vec4(position, 1.0);
+    gl_Position = u_view_proj * vec4(position, 1.0);
 }

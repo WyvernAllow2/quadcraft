@@ -131,6 +131,18 @@ void mat4_perspective(Mat4 *out, float fov, float aspect, float near, float far)
     out->data[15] = 0.0f;
 }
 
+void mat4_mul(Mat4 *out, const Mat4 *a, const Mat4 *b) {
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            float sum = 0.0f;
+            for (int k = 0; k < 4; ++k) {
+                sum += a->data[k * 4 + row] * b->data[col * 4 + k];
+            }
+            out->data[col * 4 + row] = sum;
+        }
+    }
+}
+
 iVec3 ivec3_add(iVec3 a, iVec3 b) {
     return (iVec3){
         .x = a.x + b.x,

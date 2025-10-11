@@ -1256,8 +1256,10 @@ int main(void) {
         glBindTexture(GL_TEXTURE_2D_ARRAY, textures);
         uniform_int(state.shader, "u_textures", 0);
 
-        uniform_mat4(state.shader, "u_view", &state.camera.view);
-        uniform_mat4(state.shader, "u_proj", &state.camera.proj);
+        Mat4 view_proj;
+        mat4_mul(&view_proj, &state.camera.proj, &state.camera.view);
+
+        uniform_mat4(state.shader, "u_view_proj", &view_proj);
         uniform_vec3(state.shader, "u_camera_position", state.camera.position);
 
         for (size_t i = 0; i < WORLD_VOLUME; i++) {
@@ -1280,8 +1282,7 @@ int main(void) {
 
         glUseProgram(debug_shader);
         glBindVertexArray(debug_vao);
-        uniform_mat4(debug_shader, "u_view", &state.camera.view);
-        uniform_mat4(debug_shader, "u_proj", &state.camera.proj);
+        uniform_mat4(debug_shader, "u_view_proj", &view_proj);
 
         glDrawArrays(GL_LINES, 0, debug_vertex_count);
 
