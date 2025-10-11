@@ -775,7 +775,7 @@ typedef struct DebugVertex {
     Vec3 color;
 } DebugVertex;
 
-#define MAX_LINES 100000
+#define MAX_LINES 10000000
 int debug_vertex_count = 0;
 DebugVertex *debug_vertices;
 
@@ -1007,6 +1007,78 @@ static float smooth_damp(float a, float b, float k, float dt) {
     return lerp(a, b, 1.0f - powf(k, dt));
 }
 
+typedef struct Vec4 {
+    float x;
+    float y;
+    float z;
+    float w;
+} Vec4;
+
+static Vec4 vec4_add(Vec4 a, Vec4 b) {
+    return (Vec4){
+        .x = a.x + b.x,
+        .y = a.y + b.y,
+        .z = a.z + b.z,
+        .w = a.w + b.w,
+    };
+}
+
+static Vec4 vec4_sub(Vec4 a, Vec4 b) {
+    return (Vec4){
+        .x = a.x - b.x,
+        .y = a.y - b.y,
+        .z = a.z - b.z,
+        .w = a.w - b.w,
+    };
+}
+
+static float vec4_dot(Vec4 a, Vec4 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+static Vec4 mat4_column(const Mat4 *matrix, int column) {
+    return (Vec4){
+        matrix->data[column * 4 + 0],
+        matrix->data[column * 4 + 1],
+        matrix->data[column * 4 + 2],
+        matrix->data[column * 4 + 3],
+    };
+}
+
+static void get_frustum_planes(const Mat4 *vp, Vec4 planes[6]) {
+    Mat4 vpt;
+    mat4_transpose(&vpt, vp);
+
+    planes[0] = vec4_add(mat4_column(&vpt, 3), mat4_column(&vpt, 0));
+    planes[1] = vec4_sub(mat4_column(&vpt, 3), mat4_column(&vpt, 0));
+    planes[2] = vec4_add(mat4_column(&vpt, 3), mat4_column(&vpt, 1));
+    planes[3] = vec4_sub(mat4_column(&vpt, 3), mat4_column(&vpt, 1));
+    planes[4] = vec4_add(mat4_column(&vpt, 3), mat4_column(&vpt, 2));
+    planes[5] = vec4_sub(mat4_column(&vpt, 3), mat4_column(&vpt, 2));
+}
+
+static bool is_aabb_visible(const AABB *aabb, Vec4 planes[6]) {
+    Vec3 min = aabb->position;
+    Vec3 max = vec3_add(aabb->position, aabb->size);
+
+    for (size_t i = 0; i < 6; ++i) {
+        Vec4 g = planes[i];
+
+        if ((vec4_dot(g, (Vec4){min.x, min.y, min.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){max.x, min.y, min.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){min.x, max.y, min.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){max.x, max.y, min.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){min.x, min.y, max.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){max.x, min.y, max.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){min.x, max.y, max.z, 1.0f}) < 0.0) &&
+            (vec4_dot(g, (Vec4){max.x, max.y, max.z, 1.0f}) < 0.0)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int main(void) {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -1081,7 +1153,7 @@ int main(void) {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 
-    glfwSwapInterval(1);
+    glfwSwapInterval(0);
 
     GLuint textures = load_textures();
 
@@ -1123,7 +1195,7 @@ int main(void) {
     state.camera.roll = 0.0f;
 
     state.player_aabb = (AABB){
-        .position = {(WORLD_SIZE_X * CHUNK_SIZE) / 2.0f, 320, (WORLD_SIZE_X * CHUNK_SIZE) / 2.0f},
+        .position = {(WORLD_SIZE_X * CHUNK_SIZE) / 2.0f, 500, (WORLD_SIZE_X * CHUNK_SIZE) / 2.0f},
         .size = {0.6f, 1.8f, 0.6f},
     };
 
@@ -1262,10 +1334,25 @@ int main(void) {
         uniform_mat4(state.shader, "u_view_proj", &view_proj);
         uniform_vec3(state.shader, "u_camera_position", state.camera.position);
 
+        Vec4 planes[6];
+        get_frustum_planes(&view_proj, planes);
+
         for (size_t i = 0; i < WORLD_VOLUME; i++) {
             Chunk *chunk = &state.world->chunk[i];
 
-            if (chunk->mesh.length > 0) {
+            AABB chunk_aabb = {
+                vec3_scale(vec3_from_ivec3(chunk->coord), CHUNK_SIZE),
+                (Vec3){CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE},
+            };
+
+            if (chunk->is_dirty) {
+                push_cube(chunk_aabb.position, chunk_aabb.size, (Vec3){1.0f, 0.0f, 0.0f});
+            }
+            else {
+                push_cube(chunk_aabb.position, chunk_aabb.size, (Vec3){1.0f, 1.0f, 1.0f});
+            }
+
+            if (chunk->mesh.length > 0 && is_aabb_visible(&chunk_aabb, planes)) {
                 glUniform3i(glGetUniformLocation(state.shader, "u_chunk_position"), chunk->coord.x,
                             chunk->coord.y, chunk->coord.z);
 

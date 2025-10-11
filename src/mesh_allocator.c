@@ -184,6 +184,14 @@ void mesh_allocator_upload(Mesh_Allocator *allocator, Mesh *mesh, uint32_t *vert
     assert(allocator != NULL);
     assert(mesh != NULL);
 
+    if (vertex_count == 0) {
+        if (mesh->length != 0) {
+            deallocate_mesh(allocator, *mesh);
+            mesh->length = 0;
+        }
+        return;
+    }
+
     if (mesh->length == vertex_count) {
         // fprintf(stderr, "Mesh size did not change. Uploading without reallocation\n");
         upload_mesh(allocator, *mesh, vertices);

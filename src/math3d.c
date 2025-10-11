@@ -143,6 +143,14 @@ void mat4_mul(Mat4 *out, const Mat4 *a, const Mat4 *b) {
     }
 }
 
+void mat4_transpose(Mat4 *out, const Mat4 *m) {
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            out->data[col * 4 + row] = m->data[row * 4 + col];
+        }
+    }
+}
+
 iVec3 ivec3_add(iVec3 a, iVec3 b) {
     return (iVec3){
         .x = a.x + b.x,
