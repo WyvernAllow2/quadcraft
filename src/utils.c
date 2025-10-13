@@ -1,10 +1,13 @@
 #include "utils.h"
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 char *slurp_file_str(const char *filename) {
+    assert(filename);
+
     FILE *file = fopen(filename, "rb");
     if (!file) {
         perror(filename);
@@ -36,6 +39,8 @@ char *slurp_file_str(const char *filename) {
 }
 
 GLuint compile_shader(const char *source, GLenum type) {
+    assert(source);
+
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, NULL);
     glCompileShader(shader);
@@ -97,4 +102,20 @@ GLuint compile_program_from_files(const char *vert_filename, const char *frag_fi
     }
 
     return compile_program(vert, frag);
+}
+
+void uniform_mat4(GLuint program, const char *name, const Mat4 *value) {
+    assert(name);
+    assert(value);
+    glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, value->data);
+}
+
+void uniform_int(GLuint program, const char *name, int value) {
+    assert(name);
+    glUniform1i(glGetUniformLocation(program, name), value);
+}
+
+void uniform_vec3(GLuint program, const char *name, Vec3 value) {
+    assert(name);
+    glUniform3f(glGetUniformLocation(program, name), value.x, value.y, value.z);
 }
