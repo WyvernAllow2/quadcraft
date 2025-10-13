@@ -20,8 +20,14 @@ typedef struct Camera {
 
     Mat4 view;
     Mat4 proj;
+    Mat4 view_proj;
 } Camera;
 
+typedef struct Frustum {
+    Vec4 planes[6];
+} Frustum;
+
 void camera_update(Camera *camera);
+void camera_get_frustum(const Camera *camera, Frustum *out_frustum);
 
 #endif /* CAMERA_H */
