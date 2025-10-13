@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 project(quadcraft VERSION 0.1.0 LANGUAGES C)
 
 add_executable(${PROJECT_NAME}
+    src/aabb.c
+    src/aabb.h
     src/blocks.c
     src/blocks.h
     src/camera.c
@@ -50,12 +52,14 @@ add_subdirectory(deps/glfw)
 add_subdirectory(deps/glad)
 add_subdirectory(deps/stb_image)
 add_subdirectory(deps/FastNoiseLite)
+add_subdirectory(deps/stb_easy_font)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     glad
     stb_image
     FastNoiseLite
+    stb_easy_font
 )
 
 add_custom_target(copy_assets
