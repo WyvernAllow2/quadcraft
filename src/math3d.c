@@ -1,5 +1,6 @@
 #include "math3d.h"
 
+#include <assert.h>
 #include <math.h>
 
 float to_radians(float degrees) {
@@ -11,6 +12,8 @@ float to_degrees(float radians) {
 }
 
 float clamp(float value, float min, float max) {
+    assert(min <= max);
+
     if (value < min) {
         return min;
     }
@@ -20,17 +23,21 @@ float clamp(float value, float min, float max) {
     return value;
 }
 
+float sign(float x) {
+    return (x > 0) - (x < 0);
+}
+
+float lerp(float a, float b, float t) {
+    return (1 - t) * a + t * b;
+}
+
+float smooth_damp(float a, float b, float k, float dt) {
+    return lerp(a, b, 1.0f - powf(k, dt));
+}
+
 int mod(int a, int b) {
     int r = a % b;
     return r < 0 ? r + b : r;
-}
-
-float signf(float x) {
-    return (x > 0) - (x < 0);
-}
-
-int signi(int x) {
-    return (x > 0) - (x < 0);
 }
 
 Vec3 vec3_add(Vec3 a, Vec3 b) {
@@ -80,58 +87,140 @@ float vec3_len(Vec3 v) {
 Vec3 vec3_normalize(Vec3 v) {
     float len = vec3_len(v);
     if (len < 1e-7) {
-        return (Vec3){0};
+        return (Vec3){0.0f, 0.0f, 0.0f};
     }
-
     return vec3_scale(v, 1.0f / len);
 }
 
-void mat4_identity(Mat4 *out) {
-    *out = (Mat4){0};
+Vec3 vec3_sign(Vec3 v) {
+    return (Vec3){
+        .x = sign(v.x),
+        .y = sign(v.y),
+        .z = sign(v.z),
+    };
+}
 
-    out->data[0] = 1.0f;
-    out->data[5] = 1.0f;
-    out->data[10] = 1.0f;
-    out->data[15] = 1.0f;
+Vec3 vec3_abs(Vec3 v) {
+    return (Vec3){
+        .x = fabsf(v.x),
+        .y = fabsf(v.y),
+        .z = fabsf(v.z),
+    };
+}
+
+Vec4 vec4_add(Vec4 a, Vec4 b) {
+    return (Vec4){
+        .x = a.x + b.x,
+        .y = a.y + b.y,
+        .z = a.z + b.z,
+        .w = a.w + b.w,
+    };
+}
+
+Vec4 vec4_sub(Vec4 a, Vec4 b) {
+    return (Vec4){
+        .x = a.x - b.x,
+        .y = a.y - b.y,
+        .z = a.z - b.z,
+        .w = a.w - b.w,
+    };
+}
+
+Vec4 vec4_scale(Vec4 v, float s) {
+    return (Vec4){
+        .x = v.x * s,
+        .y = v.y * s,
+        .z = v.z * s,
+        .w = v.w * s,
+    };
+}
+
+float vec4_dot(Vec4 a, Vec4 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+float vec4_len_squared(Vec4 v) {
+    return vec4_dot(v, v);
+}
+
+float vec4_len(Vec4 v) {
+    return sqrtf(vec4_len_squared(v));
+}
+
+Vec4 vec4_normalize(Vec4 v) {
+    float len = vec4_len(v);
+    if (len < 1e-7) {
+        return (Vec4){0.0f, 0.0f, 0.0f, 0.0f};
+    }
+    return vec4_scale(v, 1.0f / len);
+}
+
+void mat4_identity(Mat4 *out) {
+    assert(out);
+    /* clang-format off */
+    *out = (Mat4){
+        {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        }
+    };
+    /* clang-format on */
 }
 
 void mat4_look_at(Mat4 *out, Vec3 eye, Vec3 center, Vec3 up) {
+    assert(out);
+
     Vec3 f = vec3_normalize(vec3_sub(center, eye));
     Vec3 s = vec3_normalize(vec3_cross(f, up));
     Vec3 u = vec3_cross(s, f);
+    Vec3 t = {
+        .x = -vec3_dot(s, eye),
+        .y = -vec3_dot(u, eye),
+        .z = vec3_dot(f, eye),
+    };
 
-    mat4_identity(out);
-
-    out->data[0] = s.x;
-    out->data[1] = u.x;
-    out->data[2] = -f.x;
-    out->data[4] = s.y;
-    out->data[5] = u.y;
-    out->data[6] = -f.y;
-    out->data[8] = s.z;
-    out->data[9] = u.z;
-    out->data[10] = -f.z;
-
-    out->data[12] = -vec3_dot(s, eye);
-    out->data[13] = -vec3_dot(u, eye);
-    out->data[14] = vec3_dot(f, eye);
+    /* clang-format off */
+    *out = (Mat4){
+        {
+            s.x, u.x, -f.x, 0.0f,
+            s.y, u.y, -f.y, 0.0f,
+            s.z, u.z, -f.z, 0.0f,
+            t.x, t.y,  t.z, 1.0f,
+        }
+    };
+    /* clang-format on */
 }
 
-void mat4_perspective(Mat4 *out, float fov, float aspect, float near, float far) {
-    *out = (Mat4){0};
+void mat4_perspective(Mat4 *out, float fov, float aspect, float znear, float zfar) {
+    assert(out);
 
+    float zf = zfar;
+    float zn = znear;
     float f = 1.0f / tanf(fov / 2.0f);
-    float nf = 1.0f / (near - far);
+    float nf = 1.0f / (znear - zfar);
+    float a = aspect;
 
-    out->data[0] = f / aspect;
-    out->data[5] = f;
-    out->data[10] = (far + near) * nf;
-    out->data[11] = -1.0f;
-    out->data[14] = (2.0f * far * near) * nf;
-    out->data[15] = 0.0f;
+    /* clang-format off */
+    *out = (Mat4){
+        {
+            f / a,  0.0f,  0.0f,                   0.0f,
+            0.0f,   f,     0.0f,                   0.0f,
+            0.0f,   0.0f,  (zf + zn) * nf,        -1.0f,
+            0.0f,   0.0f,  (2.0f * zf * zn) * nf,  0.0f
+        }
+    };
+    /* clang-format on */
 }
 
 void mat4_mul(Mat4 *out, const Mat4 *a, const Mat4 *b) {
+    assert(out);
+    assert(a);
+    assert(b);
+    assert(out != a);
+    assert(out != b);
+
     for (int row = 0; row < 4; ++row) {
         for (int col = 0; col < 4; ++col) {
             float sum = 0.0f;
@@ -144,11 +233,43 @@ void mat4_mul(Mat4 *out, const Mat4 *a, const Mat4 *b) {
 }
 
 void mat4_transpose(Mat4 *out, const Mat4 *m) {
+    assert(out);
+    assert(m);
+    assert(out != m);
+
     for (int row = 0; row < 4; ++row) {
         for (int col = 0; col < 4; ++col) {
             out->data[col * 4 + row] = m->data[row * 4 + col];
         }
     }
+}
+
+Vec4 mat4_column(const Mat4 *m, int column) {
+    assert(m);
+    assert(column >= 0 && column < 4);
+
+    return (Vec4){
+        m->data[column * 4 + 0],
+        m->data[column * 4 + 1],
+        m->data[column * 4 + 2],
+        m->data[column * 4 + 3],
+    };
+}
+
+Vec3 ivec3_to_vec3(iVec3 v) {
+    return (Vec3){
+        .x = (float)v.x,
+        .y = (float)v.y,
+        .z = (float)v.z,
+    };
+}
+
+iVec3 vec3_to_ivec3(Vec3 v) {
+    return (iVec3){
+        .x = (int)v.x,
+        .y = (int)v.y,
+        .z = (int)v.z,
+    };
 }
 
 iVec3 ivec3_add(iVec3 a, iVec3 b) {
@@ -164,14 +285,6 @@ iVec3 ivec3_sub(iVec3 a, iVec3 b) {
         .x = a.x - b.x,
         .y = a.y - b.y,
         .z = a.z - b.z,
-    };
-}
-
-iVec3 ivec3_mod(iVec3 v, int x) {
-    return (iVec3){
-        .x = mod(v.x, x),
-        .y = mod(v.y, x),
-        .z = mod(v.z, x),
     };
 }
 
@@ -191,26 +304,26 @@ iVec3 ivec3_div(iVec3 v, int s) {
     };
 }
 
-iVec3 ivec3_sign(iVec3 v) {
+iVec3 ivec3_mod(iVec3 v, int x) {
     return (iVec3){
-        .x = signi(v.x),
-        .y = signi(v.y),
-        .z = signi(v.z),
+        .x = mod(v.x, x),
+        .y = mod(v.y, x),
+        .z = mod(v.z, x),
     };
 }
 
-Vec3 vec3_from_ivec3(iVec3 v) {
-    return (Vec3){
-        .x = (float)v.x,
-        .y = (float)v.y,
-        .z = (float)v.z,
+iVec3 ivec3_abs(iVec3 v) {
+    return (iVec3){
+        .x = abs(v.x),
+        .y = abs(v.y),
+        .z = abs(v.z),
     };
 }
 
-iVec3 ivec3_from_vec3(Vec3 v) {
-    return (iVec3){
-        .x = (int)v.x,
-        .y = (int)v.y,
-        .z = (int)v.z,
-    };
+float ivec3_len_squared(iVec3 v) {
+    return vec3_len_squared(ivec3_to_vec3(v));
+}
+
+float ivec3_len(iVec3 v) {
+    return sqrtf(ivec3_len_squared(v));
 }
