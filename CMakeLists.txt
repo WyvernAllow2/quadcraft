@@ -29,3 +29,11 @@ else()
         -Wmissing-prototypes
     )
 endif()
+
+set(GLFW_BUILD_DOCS OFF)
+set(GLFW_INSTALL OFF)
+add_subdirectory(deps/glfw)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    glfw
+)
