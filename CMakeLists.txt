@@ -4,8 +4,12 @@ project(quadcraft VERSION 0.1.0 LANGUAGES C)
 add_executable(${PROJECT_NAME}
     src/arena.c
     src/arena.h
+    src/block_type.c
+    src/block_type.h
     src/camera.c
     src/camera.h
+    src/chunk.c
+    src/chunk.h
     src/direction.c
     src/direction.h
     src/main.c
