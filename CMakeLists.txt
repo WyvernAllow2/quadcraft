@@ -5,6 +5,8 @@ add_executable(${PROJECT_NAME}
     src/arena.c
     src/arena.h
     src/main.c
+    src/math3d.c
+    src/math3d.h
     src/utils.c
     src/utils.h
 )
