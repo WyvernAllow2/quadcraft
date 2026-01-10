@@ -77,6 +77,22 @@ Vec3 vec3_normalize(Vec3 v) {
     return vec3_scale(v, 1.0f / len);
 }
 
+iVec3 ivec3_add(iVec3 a, iVec3 b) {
+    return (iVec3){
+        .x = a.x + b.x,
+        .y = a.y + b.y,
+        .z = a.z + b.z,
+    };
+}
+
+iVec3 ivec3_sub(iVec3 a, iVec3 b) {
+    return (iVec3){
+        .x = a.x - b.x,
+        .y = a.y - b.y,
+        .z = a.z - b.z,
+    };
+}
+
 void mat4_identity(Mat4 *out) {
     assert(out != NULL);
     /* clang-format off */

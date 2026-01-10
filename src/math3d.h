@@ -14,12 +14,11 @@ typedef struct Vec3 {
     float z;
 } Vec3;
 
-typedef struct Vec4 {
-    float x;
-    float y;
-    float z;
-    float w;
-} Vec4;
+typedef struct iVec3 {
+    int x;
+    int y;
+    int z;
+} iVec3;
 
 typedef struct Mat4 {
     float data[4 * 4];
@@ -37,6 +36,9 @@ float vec3_dot(Vec3 a, Vec3 b);
 float vec3_len_squared(Vec3 v);
 float vec3_len(Vec3 v);
 Vec3 vec3_normalize(Vec3 v);
+
+iVec3 ivec3_add(iVec3 a, iVec3 b);
+iVec3 ivec3_sub(iVec3 a, iVec3 b);
 
 void mat4_identity(Mat4 *out);
 void mat4_look_at(Mat4 *out, Vec3 eye, Vec3 center, Vec3 up);
