@@ -6,6 +6,8 @@ add_executable(${PROJECT_NAME}
     src/arena.h
     src/camera.c
     src/camera.h
+    src/direction.c
+    src/direction.h
     src/main.c
     src/math3d.c
     src/math3d.h
