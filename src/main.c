@@ -7,7 +7,11 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
+#include "camera.h"
 #include "utils.h"
+
+#define DEFAULT_CAMERA_SPEED 16.0f
+#define DEFAULT_MOUSE_SENSITIVITY 0.25f
 
 static void glfw_error_callback(int error_code, const char *description) {
     (void)error_code;
@@ -74,6 +78,14 @@ struct {
     int window_h;
     GLFWwindow *window;
 
+    Camera camera;
+    float camera_speed;
+    float mouse_sensitivity;
+
+    bool first_mouse;
+    float prev_mouse_x;
+    float prev_mouse_y;
+
     GLuint shader;
     GLuint vao;
     GLuint vbo;
@@ -87,6 +99,26 @@ static void window_size_callback(GLFWwindow *window, int width, int height) {
     state.window_w = width;
     state.window_h = height;
     glViewport(0, 0, state.window_w, state.window_h);
+}
+
+static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
+    (void)window;
+    assert(window == state.window);
+
+    if (state.first_mouse) {
+        state.prev_mouse_x = xpos;
+        state.prev_mouse_y = ypos;
+        state.first_mouse = false;
+    }
+
+    float delta_x = xpos - state.prev_mouse_x;
+    float delta_y = ypos - state.prev_mouse_y;
+
+    state.prev_mouse_x = xpos;
+    state.prev_mouse_y = ypos;
+
+    state.camera.yaw += to_radians(delta_x * state.mouse_sensitivity);
+    state.camera.pitch += to_radians(-delta_y * state.mouse_sensitivity);
 }
 
 typedef struct Vertex {
@@ -138,6 +170,27 @@ static bool on_init(void) {
 
     glfwSetWindowSizeCallback(state.window, window_size_callback);
 
+    glfwSetInputMode(state.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetCursorPosCallback(state.window, cursor_pos_callback);
+
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(state.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
+
+    state.camera = (Camera){
+        .fov = to_radians(90.0f),
+        .aspect = state.window_w / (float)state.window_h,
+        .znear = 0.001f,
+        .zfar = 1000.0f,
+        .yaw = -to_radians(90.0f),
+    };
+
+    state.camera_speed = DEFAULT_CAMERA_SPEED;
+    state.mouse_sensitivity = DEFAULT_MOUSE_SENSITIVITY;
+    state.first_mouse = true;
+
+    camera_update(&state.camera);
+
     state.shader =
         compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag", &init_arena);
     if (!state.shader) {
@@ -186,6 +239,25 @@ static void on_quit(void) {
 
 static void on_update(float delta_time) {
     (void)delta_time;
+
+    Vec3 move_dir = {0};
+    if (glfwGetKey(state.window, GLFW_KEY_W)) {
+        move_dir = vec3_add(move_dir, state.camera.forward);
+    }
+    if (glfwGetKey(state.window, GLFW_KEY_S)) {
+        move_dir = vec3_sub(move_dir, state.camera.forward);
+    }
+    if (glfwGetKey(state.window, GLFW_KEY_D)) {
+        move_dir = vec3_add(move_dir, state.camera.right);
+    }
+    if (glfwGetKey(state.window, GLFW_KEY_A)) {
+        move_dir = vec3_sub(move_dir, state.camera.right);
+    }
+
+    Vec3 move_amount = vec3_scale(vec3_normalize(move_dir), delta_time * state.camera_speed);
+    state.camera.position = vec3_add(state.camera.position, move_amount);
+
+    camera_update(&state.camera);
 }
 
 static void on_draw(float delta_time) {
@@ -194,6 +266,9 @@ static void on_draw(float delta_time) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(state.shader);
+    glUniformMatrix4fv(glGetUniformLocation(state.shader, "u_view_proj"), 1, GL_FALSE,
+                       state.camera.view_proj.data);
+
     glBindVertexArray(state.vao);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
