@@ -7,6 +7,8 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
+#include "utils.h"
+
 static void glfw_error_callback(int error_code, const char *description) {
     (void)error_code;
     fprintf(stderr, "GLFW: %s\n", description);
@@ -71,6 +73,11 @@ struct {
     int window_w;
     int window_h;
     GLFWwindow *window;
+
+    GLuint shader;
+    GLuint vao;
+    GLuint vbo;
+    GLuint ebo;
 } state;
 
 static void window_size_callback(GLFWwindow *window, int width, int height) {
@@ -82,7 +89,14 @@ static void window_size_callback(GLFWwindow *window, int width, int height) {
     glViewport(0, 0, state.window_w, state.window_h);
 }
 
+typedef struct Vertex {
+    float position[3];
+} Vertex;
+
 static bool on_init(void) {
+    Arena init_arena;
+    arena_create(&init_arena, MIB_TO_BYTES(4));
+
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         fprintf(stderr, "glfwInit() failed\n");
@@ -124,10 +138,48 @@ static bool on_init(void) {
 
     glfwSetWindowSizeCallback(state.window, window_size_callback);
 
+    state.shader =
+        compile_program_from_files("res/shaders/chunk.vert", "res/shaders/chunk.frag", &init_arena);
+    if (!state.shader) {
+        fprintf(stderr, "compile_program_from_files() failed\n");
+        return false;
+    }
+
+    Vertex vertices[] = {
+        {0.5f, 0.5f, 0.0f},
+        {0.5f, -0.5f, 0.0f},
+        {-0.5f, -0.5f, 0.0f},
+        {-0.5f, 0.5f, 0.0f},
+    };
+
+    uint32_t indices[] = {0, 1, 3, 1, 2, 3};
+
+    glGenVertexArrays(1, &state.vao);
+    glGenBuffers(1, &state.vbo);
+    glGenBuffers(1, &state.ebo);
+
+    glBindVertexArray(state.vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+    /* Position attribute */
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          (void *)offsetof(Vertex, position));
+
+    arena_destroy(&init_arena);
     return true;
 }
 
 static void on_quit(void) {
+    glDeleteBuffers(1, &state.ebo);
+    glDeleteBuffers(1, &state.vbo);
+    glDeleteVertexArrays(1, &state.vao);
+
     glfwDestroyWindow(state.window);
     glfwTerminate();
 }
@@ -140,6 +192,10 @@ static void on_draw(float delta_time) {
     (void)delta_time;
     glClearColor(0.5, 1.0, 0.5, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glUseProgram(state.shader);
+    glBindVertexArray(state.vao);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
     glfwSwapBuffers(state.window);
 }
