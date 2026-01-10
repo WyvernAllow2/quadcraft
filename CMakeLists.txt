@@ -5,6 +5,8 @@ add_executable(${PROJECT_NAME}
     src/arena.c
     src/arena.h
     src/main.c
+    src/utils.c
+    src/utils.h
 )
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 11)
