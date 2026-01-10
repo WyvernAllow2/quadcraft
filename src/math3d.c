@@ -11,6 +11,20 @@ float to_degrees(float radians) {
     return radians * (180.0f / PI);
 }
 
+float clamp(float value, float min, float max) {
+    assert(min < max);
+
+    if (value < min) {
+        return min;
+    }
+
+    if (value > max) {
+        return max;
+    }
+
+    return value;
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){
         .x = a.x + b.x,

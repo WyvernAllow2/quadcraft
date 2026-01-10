@@ -27,6 +27,7 @@ typedef struct Mat4 {
 
 float to_radians(float degrees);
 float to_degrees(float radians);
+float clamp(float value, float min, float max);
 
 Vec3 vec3_add(Vec3 a, Vec3 b);
 Vec3 vec3_sub(Vec3 a, Vec3 b);
