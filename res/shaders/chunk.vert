@@ -5,6 +5,7 @@ uniform mat4 u_view_proj;
 
 out vec3 v_normal;
 out vec3 v_uv;
+out vec3 v_color;
 
 /* clang-format off */
 const vec3 NORMAL_TABLE[6] = vec3[](
@@ -28,6 +29,7 @@ void main() {
     vec3 position = vec3(x, y, z);
     v_normal = NORMAL_TABLE[direction];
     v_uv = vec3(dot(v_normal.xzy, position.zxx), position.y + v_normal.y * position.z, texture_id);
+    v_color = clamp(0.2 + vec3(ao / 4.0), 0.0, 1.0);
 
     gl_Position = u_view_proj * vec4(position, 1.0);
 }

@@ -51,6 +51,52 @@ static const iVec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
     },
 };
 
+/* Precalculated sample offsets for ambient occlusion. Each vertex of each face takes 3 samples of
+ * its neighboring blocks. */
+static const iVec3 AO_OFFSETS[DIRECTION_COUNT][4][3] = {
+    [DIR_POSITIVE_X] =
+        {
+            {{ 1, 0,-1}, { 1,-1, 0}, { 1,-1,-1}},
+            {{ 1, 1, 0}, { 1, 0,-1}, { 1, 1,-1}},
+            {{ 1, 0, 1}, { 1, 1, 0}, { 1, 1, 1}},
+            {{ 1,-1, 0}, { 1, 0, 1}, { 1,-1, 1}},
+        },
+    [DIR_POSITIVE_Y] =
+        {
+            {{ 1, 1, 0}, { 0, 1, 1}, { 1, 1, 1}},
+            {{ 0, 1,-1}, { 1, 1, 0}, { 1, 1,-1}},
+            {{-1, 1, 0}, { 0, 1,-1}, {-1, 1,-1}},
+            {{ 0, 1, 1}, {-1, 1, 0}, {-1, 1, 1}},
+        },
+    [DIR_POSITIVE_Z] =
+        {
+            {{ 0,-1, 1}, {-1, 0, 1}, {-1,-1, 1}},
+            {{ 1, 0, 1}, { 0,-1, 1}, { 1,-1, 1}},
+            {{ 0, 1, 1}, { 1, 0, 1}, { 1, 1, 1}},
+            {{-1, 0, 1}, { 0, 1, 1}, {-1, 1, 1}},
+        },
+    [DIR_NEGATIVE_X] =
+        {
+            {{-1, 0, 1}, {-1,-1, 0}, {-1,-1, 1}},
+            {{-1, 1, 0}, {-1, 0, 1}, {-1, 1, 1}},
+            {{-1, 0,-1}, {-1, 1, 0}, {-1, 1,-1}},
+            {{-1,-1, 0}, {-1, 0,-1}, {-1,-1,-1}},
+        },
+    [DIR_NEGATIVE_Y] =
+        {
+            {{-1,-1, 0}, { 0,-1, 1}, {-1,-1, 1}},
+            {{ 0,-1,-1}, {-1,-1, 0}, {-1,-1,-1}},
+            {{ 1,-1, 0}, { 0,-1,-1}, { 1,-1,-1}},
+            {{ 0,-1, 1}, { 1,-1, 0}, { 1,-1, 1}},
+        },
+    [DIR_NEGATIVE_Z] =
+        {
+            {{ 0, 1,-1}, {-1, 0,-1}, {-1, 1,-1}},
+            {{ 1, 0,-1}, { 0, 1,-1}, { 1, 1,-1}},
+            {{ 0,-1,-1}, { 1, 0,-1}, { 1,-1,-1}},
+            {{-1, 0,-1}, { 0,-1,-1}, {-1,-1,-1}},
+        },
+};
 /* clang-format on */
 
 static uint32_t pack_vertex(uint8_t x, uint8_t y, uint8_t z, uint8_t dir, uint8_t ao,
@@ -98,9 +144,27 @@ static void push_vertex(Mesher *mesher, iVec3 pos, Direction direction, Texture_
     mesher->vertex_count++;
 }
 
-static void emit_face(Mesher *mesher, iVec3 pos, Direction direction, Texture_ID texture) {
+static uint8_t vertex_ao(bool side_1, bool side_2, bool corner) {
+    if (side_1 && side_2) {
+        return 0;
+    }
+
+    return 3 - (side_1 + side_2 + corner);
+}
+
+static void emit_face(Mesher *mesher, const Chunk *chunk, iVec3 pos, Direction direction,
+                      Texture_ID texture) {
     for (int i = 0; i < 4; i++) {
-        push_vertex(mesher, ivec3_add(pos, FACE_VERTICES[direction][i]), direction, texture, 0);
+        iVec3 side_1_pos = AO_OFFSETS[direction][i][0];
+        iVec3 side_2_pos = AO_OFFSETS[direction][i][1];
+        iVec3 corner_pos = AO_OFFSETS[direction][i][2];
+
+        bool corner_opaque = !chunk_is_block_transparent(chunk, ivec3_add(pos, corner_pos));
+        bool side_1_opaque = !chunk_is_block_transparent(chunk, ivec3_add(pos, side_1_pos));
+        bool side_2_opaque = !chunk_is_block_transparent(chunk, ivec3_add(pos, side_2_pos));
+
+        uint8_t ao = vertex_ao(side_1_opaque, side_2_opaque, corner_opaque);
+        push_vertex(mesher, ivec3_add(pos, FACE_VERTICES[direction][i]), direction, texture, ao);
     }
 }
 
@@ -109,7 +173,7 @@ static void mesh_block(Mesher *mesher, const Chunk *chunk, Block_Type type, iVec
         iVec3 neighbor_pos = ivec3_add(pos, direction_to_ivec3(dir));
         if (chunk_is_block_transparent(chunk, neighbor_pos)) {
             const Block_Properties *properties = get_block_properties(type);
-            emit_face(mesher, pos, dir, properties->textures[dir]);
+            emit_face(mesher, chunk, pos, dir, properties->textures[dir]);
         }
     }
 }
