@@ -3,12 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "camera.h"
+#include "chunk.h"
+#include "meshing.h"
+#include "utils.h"
+
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
-
-#include "camera.h"
-#include "utils.h"
 
 #define DEFAULT_CAMERA_SPEED 16.0f
 #define DEFAULT_MOUSE_SENSITIVITY 0.25f
@@ -90,6 +92,9 @@ struct {
     GLuint vao;
     GLuint vbo;
     GLuint ebo;
+
+    Chunk chunk;
+    uint32_t quad_count;
 } state;
 
 static void window_size_callback(GLFWwindow *window, int width, int height) {
@@ -121,13 +126,9 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
     state.camera.pitch += to_radians(-delta_y * state.mouse_sensitivity);
 }
 
-typedef struct Vertex {
-    float position[3];
-} Vertex;
-
 static bool on_init(void) {
     Arena init_arena;
-    arena_create(&init_arena, MIB_TO_BYTES(4));
+    arena_create(&init_arena, MIB_TO_BYTES(10));
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -198,14 +199,20 @@ static bool on_init(void) {
         return false;
     }
 
-    Vertex vertices[] = {
-        {0.5f, 0.5f, 0.0f},
-        {0.5f, -0.5f, 0.0f},
-        {-0.5f, -0.5f, 0.0f},
-        {-0.5f, 0.5f, 0.0f},
-    };
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                iVec3 pos = {x, y, z};
+                chunk_set_block_unsafe(&state.chunk, pos, BLOCK_DIRT);
+            }
+        }
+    }
 
-    uint32_t indices[] = {0, 1, 3, 1, 2, 3};
+    uint32_t index_count = 0;
+    uint32_t *indices = generate_index_buffer(&index_count, &init_arena);
+
+    uint32_t vertex_count = 0;
+    uint32_t *vertices = mesh_chunk(&state.chunk, &vertex_count, &init_arena);
 
     glGenVertexArrays(1, &state.vao);
     glGenBuffers(1, &state.vbo);
@@ -214,15 +221,20 @@ static bool on_init(void) {
     glBindVertexArray(state.vao);
 
     glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * vertex_count), vertices,
+                 GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * index_count), indices,
+                 GL_STATIC_DRAW);
 
-    /* Position attribute */
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          (void *)offsetof(Vertex, position));
+    glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), NULL);
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    state.quad_count = (vertex_count / 4);
 
     arena_destroy(&init_arena);
     return true;
@@ -262,7 +274,7 @@ static void on_update(float delta_time) {
 
 static void on_draw(float delta_time) {
     (void)delta_time;
-    glClearColor(0.5, 1.0, 0.5, 1.0);
+    glClearColor(0.2, 0.2, 0.2, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(state.shader);
@@ -270,7 +282,7 @@ static void on_draw(float delta_time) {
                        state.camera.view_proj.data);
 
     glBindVertexArray(state.vao);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, (GLsizei)(state.quad_count * 6), GL_UNSIGNED_INT, 0);
 
     glfwSwapBuffers(state.window);
 }
