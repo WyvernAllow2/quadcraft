@@ -50,8 +50,10 @@ set(GLFW_BUILD_DOCS OFF)
 set(GLFW_INSTALL OFF)
 add_subdirectory(deps/glfw)
 add_subdirectory(deps/glad)
+add_subdirectory(deps/stb_image)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     glad
+    stb_image
 )
