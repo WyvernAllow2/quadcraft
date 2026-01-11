@@ -27,6 +27,7 @@ typedef struct Mat4 {
 float to_radians(float degrees);
 float to_degrees(float radians);
 float clamp(float value, float min, float max);
+int mod(int a, int b);
 
 Vec3 vec3_add(Vec3 a, Vec3 b);
 Vec3 vec3_sub(Vec3 a, Vec3 b);
@@ -39,6 +40,9 @@ Vec3 vec3_normalize(Vec3 v);
 
 iVec3 ivec3_add(iVec3 a, iVec3 b);
 iVec3 ivec3_sub(iVec3 a, iVec3 b);
+iVec3 ivec3_scale(iVec3 v, int s);
+iVec3 ivec3_div(iVec3 v, int s);
+iVec3 ivec3_mod(iVec3 a, int b);
 
 void mat4_identity(Mat4 *out);
 void mat4_look_at(Mat4 *out, Vec3 eye, Vec3 center, Vec3 up);

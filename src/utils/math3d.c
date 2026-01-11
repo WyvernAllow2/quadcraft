@@ -25,6 +25,11 @@ float clamp(float value, float min, float max) {
     return value;
 }
 
+int mod(int a, int b) {
+    int r = a % b;
+    return r < 0 ? r + b : r;
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){
         .x = a.x + b.x,
@@ -90,6 +95,30 @@ iVec3 ivec3_sub(iVec3 a, iVec3 b) {
         .x = a.x - b.x,
         .y = a.y - b.y,
         .z = a.z - b.z,
+    };
+}
+
+iVec3 ivec3_scale(iVec3 v, int s) {
+    return (iVec3){
+        .x = v.x * s,
+        .y = v.y * s,
+        .z = v.z * s,
+    };
+}
+
+iVec3 ivec3_div(iVec3 v, int s) {
+    return (iVec3){
+        .x = v.x / s,
+        .y = v.y / s,
+        .z = v.z / s,
+    };
+}
+
+iVec3 ivec3_mod(iVec3 a, int b) {
+    return (iVec3){
+        .x = mod(a.x, b),
+        .y = mod(a.y, b),
+        .z = mod(a.z, b),
     };
 }
 
