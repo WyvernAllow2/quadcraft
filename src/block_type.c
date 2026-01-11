@@ -2,8 +2,8 @@
 
 #include <assert.h>
 
-#define TEXTURES_UNIFORM(tex) {tex, tex, tex, tex, tex, tex}
-#define TEXTURES_SIDE_TOP_BOTTOM(side, top, bottom) {side, top, side, side, bottom, side}
+#define TEX_UNIFORM(tex) {tex, tex, tex, tex, tex, tex}
+#define TEX_SIDE_TOP_BOTTOM(side, top, bottom) {side, top, side, side, bottom, side}
 
 /* clang-format off */
 static const Block_Properties BLOCK_PROPERTY_TABLE[BLOCK_TYPE_COUNT] = {
@@ -12,7 +12,11 @@ static const Block_Properties BLOCK_PROPERTY_TABLE[BLOCK_TYPE_COUNT] = {
     },
     [BLOCK_DIRT] = {
         .is_transparent = false,
-        .textures = TEXTURES_UNIFORM(TEXTURE_ID_DIRT),
+        .textures = TEX_UNIFORM(TEXTURE_ID_DIRT),
+    },
+    [BLOCK_GRASS] = {
+        .is_transparent = false,
+        .textures = TEX_SIDE_TOP_BOTTOM(TEXTURE_ID_GRASS_SIDE, TEXTURE_ID_GRASS_TOP, TEXTURE_ID_DIRT),
     },
 };
 /* clang-format on */

@@ -204,8 +204,15 @@ static bool on_init(void) {
     for (int z = 0; z < CHUNK_SIZE; z++) {
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
+                Block_Type type = BLOCK_DIRT;
+                if (y > 8) {
+                    type = BLOCK_AIR;
+                } else if (y == 8) {
+                    type = BLOCK_GRASS;
+                }
+
                 iVec3 pos = {x, y, z};
-                chunk_set_block_unsafe(&state.chunk, pos, BLOCK_DIRT);
+                chunk_set_block_unsafe(&state.chunk, pos, type);
             }
         }
     }

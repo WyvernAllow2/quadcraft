@@ -5,6 +5,8 @@
 
 typedef enum Texture_ID {
     TEXTURE_ID_DIRT,
+    TEXTURE_ID_GRASS_SIDE,
+    TEXTURE_ID_GRASS_TOP,
 
     TEXTURE_ID_COUNT,
 } Texture_ID;

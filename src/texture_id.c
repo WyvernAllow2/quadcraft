@@ -4,6 +4,8 @@
 
 static const char *TEXTURE_FILENAMES[TEXTURE_ID_COUNT] = {
     [TEXTURE_ID_DIRT] = "res/textures/dirt.png",
+    [TEXTURE_ID_GRASS_SIDE] = "res/textures/grass_side.png",
+    [TEXTURE_ID_GRASS_TOP] = "res/textures/grass_top.png",
 };
 
 const char *get_texture_filename(Texture_ID id) {
