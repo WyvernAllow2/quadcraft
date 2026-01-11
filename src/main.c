@@ -3,11 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "camera.h"
-#include "chunk.h"
-#include "meshing.h"
-#include "texture_array.h"
-#include "utils.h"
+#include "render/meshing.h"
+#include "render/texture_array.h"
+#include "utils/utils.h"
+#include "world/camera.h"
+#include "world/chunk.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>

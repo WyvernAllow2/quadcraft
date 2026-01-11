@@ -2,7 +2,7 @@
 
 #include <assert.h>
 
-#include "direction.h"
+#include "utils/direction.h"
 
 /* The maximum number of quads a chunk could possibly have. Assuming the worse-case scenario of a 3D
    checkerboard pattern, then half the blocks would have all 6 faces exposed.

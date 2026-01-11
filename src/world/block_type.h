@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 
-#include "direction.h"
-#include "texture_id.h"
+#include "utils/direction.h"
+#include "render/texture_id.h"
 
 typedef enum Block_Type {
     BLOCK_AIR,

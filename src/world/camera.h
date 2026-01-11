@@ -1,7 +1,7 @@
 #ifndef CAMERA_H
 #define CAMERA_H
 
-#include "math3d.h"
+#include "utils/math3d.h"
 
 typedef struct Camera {
     Vec3 position;

@@ -3,9 +3,8 @@
 
 #include <stdint.h>
 
-#include "block_type.h"
-#include "math.h"
-#include "math3d.h"
+#include "world/block_type.h"
+#include "utils/math3d.h"
 
 #define CHUNK_SIZE 32
 #define CHUNK_VOLUME (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)

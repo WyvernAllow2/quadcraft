@@ -2,28 +2,20 @@ cmake_minimum_required(VERSION 3.13)
 project(quadcraft VERSION 0.1.0 LANGUAGES C)
 
 add_executable(${PROJECT_NAME}
-    src/arena.c
-    src/arena.h
-    src/block_type.c
-    src/block_type.h
-    src/camera.c
-    src/camera.h
-    src/chunk.c
-    src/chunk.h
-    src/direction.c
-    src/direction.h
-    src/main.c
-    src/math3d.c
-    src/math3d.h
-    src/meshing.c
-    src/meshing.h
-    src/texture_array.c
-    src/texture_array.h
-    src/texture_id.c
-    src/texture_id.h
-    src/utils.c
-    src/utils.h
+    "src/render/meshing.c"
+    "src/render/texture_array.c"
+    "src/render/texture_id.c"
+    "src/utils/arena.c"
+    "src/utils/direction.c"
+    "src/utils/math3d.c"
+    "src/utils/utils.c"
+    "src/world/block_type.c"
+    "src/world/camera.c"
+    "src/world/chunk.c"
+    "src/main.c"
 )
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
