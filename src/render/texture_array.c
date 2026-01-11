@@ -3,6 +3,7 @@
 #include <stb_image.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #include "texture_id.h"
 
