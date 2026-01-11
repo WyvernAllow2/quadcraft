@@ -17,7 +17,7 @@ add_executable(${PROJECT_NAME}
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
-set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 11)
+set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 99)
 target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 if(MSVC)
@@ -28,7 +28,7 @@ if(MSVC)
     )
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE
-        -std=c11
+        -std=c99
         -Wall
         -Wextra
         -Wpedantic

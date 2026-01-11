@@ -10,10 +10,10 @@
 #define GIB_TO_BYTES(x) ((uint64_t)(x) << 30)
 
 #define ARENA_NEW(arena, T) \
-    ((T *)arena_alloc_aligned((arena), sizeof(T), alignof(T)))
+    ((T *)arena_alloc((arena), sizeof(T)))
 
 #define ARENA_NEW_ARRAY(arena, T, COUNT) \
-    ((T *)arena_alloc_aligned((arena), sizeof(T) * (COUNT), alignof(T)))
+    ((T *)arena_alloc((arena), sizeof(T) * (COUNT)))
 
 typedef struct Arena {
     uint8_t *base;

@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define DEFAULT_ALIGNMENT (2 * sizeof(void *))
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -133,7 +135,7 @@ void *arena_alloc_aligned(Arena *arena, size_t size, size_t align) {
 }
 
 void *arena_alloc(Arena *arena, size_t size) {
-    return arena_alloc_aligned(arena, size, alignof(max_align_t));
+    return arena_alloc_aligned(arena, size, DEFAULT_ALIGNMENT);
 }
 
 void arena_reset(Arena *arena) {
