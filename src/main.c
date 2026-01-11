@@ -6,6 +6,7 @@
 #include "camera.h"
 #include "chunk.h"
 #include "meshing.h"
+#include "texture_array.h"
 #include "utils.h"
 
 #define GLFW_INCLUDE_NONE
@@ -92,6 +93,7 @@ struct {
     GLuint vao;
     GLuint vbo;
     GLuint ebo;
+    GLuint texture_array;
 
     Chunk chunk;
     uint32_t quad_count;
@@ -231,8 +233,11 @@ static bool on_init(void) {
     glEnableVertexAttribArray(0);
     glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), NULL);
 
+    state.texture_array = load_texture_array();
+
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
+    glEnable(GL_FRAMEBUFFER_SRGB);
 
     state.quad_count = (vertex_count / 4);
 
@@ -280,6 +285,10 @@ static void on_draw(float delta_time) {
     glUseProgram(state.shader);
     glUniformMatrix4fv(glGetUniformLocation(state.shader, "u_view_proj"), 1, GL_FALSE,
                        state.camera.view_proj.data);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, state.texture_array);
+    glUniform1i(glGetUniformLocation(state.shader, "u_texture_array"), 0);
 
     glBindVertexArray(state.vao);
     glDrawElements(GL_TRIANGLES, (GLsizei)(state.quad_count * 6), GL_UNSIGNED_INT, 0);

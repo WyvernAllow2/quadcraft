@@ -2,7 +2,11 @@
 layout(location = 0) out vec4 v_frag;
 
 in vec3 v_normal;
+in vec3 v_uv;
+
+uniform sampler2DArray u_texture_array;
 
 void main() {
-    v_frag = vec4(v_normal * 0.5 + 0.5, 1.0);
+    vec3 color = texture(u_texture_array, v_uv).rgb;
+    v_frag = vec4(color, 1.0);
 }

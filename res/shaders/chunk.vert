@@ -4,6 +4,7 @@ layout(location = 0) in uint a_vertex;
 uniform mat4 u_view_proj;
 
 out vec3 v_normal;
+out vec3 v_uv;
 
 /* clang-format off */
 const vec3 NORMAL_TABLE[6] = vec3[](
@@ -26,6 +27,7 @@ void main() {
 
     vec3 position = vec3(x, y, z);
     v_normal = NORMAL_TABLE[direction];
+    v_uv = vec3(dot(v_normal.xzy, position.zxx), position.y + v_normal.y * position.z, texture_id);
 
     gl_Position = u_view_proj * vec4(position, 1.0);
 }

@@ -17,6 +17,10 @@ add_executable(${PROJECT_NAME}
     src/math3d.h
     src/meshing.c
     src/meshing.h
+    src/texture_array.c
+    src/texture_array.h
+    src/texture_id.c
+    src/texture_id.h
     src/utils.c
     src/utils.h
 )

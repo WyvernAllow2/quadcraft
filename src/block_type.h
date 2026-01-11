@@ -3,6 +3,9 @@
 
 #include <stdbool.h>
 
+#include "direction.h"
+#include "texture_id.h"
+
 typedef enum Block_Type {
     BLOCK_AIR,
     BLOCK_DIRT,
@@ -12,6 +15,7 @@ typedef enum Block_Type {
 
 typedef struct Block_Properties {
     bool is_transparent;
+    Texture_ID textures[DIRECTION_COUNT];
 } Block_Properties;
 
 const Block_Properties *get_block_properties(Block_Type type);

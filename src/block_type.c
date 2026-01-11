@@ -2,6 +2,9 @@
 
 #include <assert.h>
 
+#define TEXTURES_UNIFORM(tex) {tex, tex, tex, tex, tex, tex}
+#define TEXTURES_SIDE_TOP_BOTTOM(side, top, bottom) {side, top, side, side, bottom, side}
+
 /* clang-format off */
 static const Block_Properties BLOCK_PROPERTY_TABLE[BLOCK_TYPE_COUNT] = {
     [BLOCK_AIR] = {
@@ -9,6 +12,7 @@ static const Block_Properties BLOCK_PROPERTY_TABLE[BLOCK_TYPE_COUNT] = {
     },
     [BLOCK_DIRT] = {
         .is_transparent = false,
+        .textures = TEXTURES_UNIFORM(TEXTURE_ID_DIRT),
     },
 };
 /* clang-format on */

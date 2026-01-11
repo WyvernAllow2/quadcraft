@@ -53,8 +53,8 @@ static const iVec3 FACE_VERTICES[DIRECTION_COUNT][4] = {
 
 /* clang-format on */
 
-static uint32_t pack_vertex(uint8_t x, uint8_t y, uint8_t z, uint8_t dir, uint16_t tex,
-                            uint8_t ao) {
+static uint32_t pack_vertex(uint8_t x, uint8_t y, uint8_t z, uint8_t dir, uint8_t ao,
+                            uint16_t tex) {
     /* Vertex format:
      *  *-------------------*---------*---------------*------------*
      *  |Data               |  size   | bit range     |  max value |
@@ -88,26 +88,28 @@ typedef struct Mesher {
     uint32_t vertex_count;
 } Mesher;
 
-static void push_vertex(Mesher *mesher, iVec3 pos, Direction direction, int texture, uint8_t ao) {
+static void push_vertex(Mesher *mesher, iVec3 pos, Direction direction, Texture_ID texture,
+                        uint8_t ao) {
     assert(mesher->vertex_count < MAX_VERTS);
 
-    uint32_t vert = pack_vertex(pos.x, pos.y, pos.z, direction, texture, ao);
+    uint32_t vert = pack_vertex(pos.x, pos.y, pos.z, direction, ao, texture);
 
     mesher->vertices[mesher->vertex_count] = vert;
     mesher->vertex_count++;
 }
 
-static void emit_face(Mesher *mesher, iVec3 pos, Direction direction) {
+static void emit_face(Mesher *mesher, iVec3 pos, Direction direction, Texture_ID texture) {
     for (int i = 0; i < 4; i++) {
-        push_vertex(mesher, ivec3_add(pos, FACE_VERTICES[direction][i]), direction, 0, 0);
+        push_vertex(mesher, ivec3_add(pos, FACE_VERTICES[direction][i]), direction, texture, 0);
     }
 }
 
-static void mesh_block(Mesher *mesher, const Chunk *chunk, iVec3 pos) {
+static void mesh_block(Mesher *mesher, const Chunk *chunk, Block_Type type, iVec3 pos) {
     for (Direction dir = 0; dir < DIRECTION_COUNT; dir++) {
         iVec3 neighbor_pos = ivec3_add(pos, direction_to_ivec3(dir));
         if (chunk_is_block_transparent(chunk, neighbor_pos)) {
-            emit_face(mesher, pos, dir);
+            const Block_Properties *properties = get_block_properties(type);
+            emit_face(mesher, pos, dir, properties->textures[dir]);
         }
     }
 }
@@ -129,7 +131,7 @@ uint32_t *mesh_chunk(const Chunk *chunk, uint32_t *vertex_count, Arena *arena) {
 
                 Block_Type type = chunk_get_block_unsafe(chunk, pos);
                 if (type != BLOCK_AIR) {
-                    mesh_block(&mesher, chunk, pos);
+                    mesh_block(&mesher, chunk, type, pos);
                 }
             }
         }
