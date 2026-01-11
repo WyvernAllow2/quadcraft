@@ -12,6 +12,7 @@
 
 typedef struct Chunk {
     uint8_t blocks[CHUNK_VOLUME];
+    bool is_dirty;
 } Chunk;
 
 Block_Type chunk_get_block_unsafe(const Chunk *chunk, iVec3 pos);

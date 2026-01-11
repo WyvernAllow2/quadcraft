@@ -28,7 +28,12 @@ Block_Type chunk_get_block(const Chunk *chunk, iVec3 pos) {
 }
 
 void chunk_set_block_unsafe(Chunk *chunk, iVec3 pos, Block_Type new_block) {
+    if (chunk_get_block_unsafe(chunk, pos) == new_block) {
+        return;
+    }
+
     chunk->blocks[get_index(pos)] = new_block;
+    chunk->is_dirty = true;
 }
 
 void chunk_set_block(Chunk *chunk, iVec3 pos, Block_Type new_block) {

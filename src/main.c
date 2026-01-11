@@ -81,6 +81,8 @@ struct {
     int window_h;
     GLFWwindow *window;
 
+    Arena frame_arena;
+
     Camera camera;
     float camera_speed;
     float mouse_sensitivity;
@@ -128,9 +130,14 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
     state.camera.pitch += to_radians(-delta_y * state.mouse_sensitivity);
 }
 
+#define MAX_QUADS ((CHUNK_VOLUME / 2) * 6)
+#define MAX_VERTS (MAX_QUADS * 4)
+
 static bool on_init(void) {
     Arena init_arena;
     arena_create(&init_arena, MIB_TO_BYTES(10));
+
+    arena_create(&state.frame_arena, MIB_TO_BYTES(10));
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -217,11 +224,10 @@ static bool on_init(void) {
         }
     }
 
+    state.chunk.is_dirty = true;
+
     uint32_t index_count = 0;
     uint32_t *indices = generate_index_buffer(&index_count, &init_arena);
-
-    uint32_t vertex_count = 0;
-    uint32_t *vertices = mesh_chunk(&state.chunk, &vertex_count, &init_arena);
 
     glGenVertexArrays(1, &state.vao);
     glGenBuffers(1, &state.vbo);
@@ -230,8 +236,7 @@ static bool on_init(void) {
     glBindVertexArray(state.vao);
 
     glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * vertex_count), vertices,
-                 GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * MAX_VERTS), NULL, GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * index_count), indices,
@@ -245,8 +250,6 @@ static bool on_init(void) {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glEnable(GL_FRAMEBUFFER_SRGB);
-
-    state.quad_count = (vertex_count / 4);
 
     arena_destroy(&init_arena);
     return true;
@@ -282,6 +285,34 @@ static void on_update(float delta_time) {
     state.camera.position = vec3_add(state.camera.position, move_amount);
 
     camera_update(&state.camera);
+
+    iVec3 place_pos = {
+        (int)floorf(state.camera.position.x + state.camera.forward.x),
+        (int)floorf(state.camera.position.y + state.camera.forward.y),
+        (int)floorf(state.camera.position.z + state.camera.forward.z),
+    };
+
+    if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_LEFT)) {
+        chunk_set_block(&state.chunk, place_pos, BLOCK_AIR);
+    }
+
+    if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_RIGHT)) {
+        chunk_set_block(&state.chunk, place_pos, BLOCK_DIRT);
+    }
+
+    if (state.chunk.is_dirty) {
+        uint32_t vertex_count;
+        uint32_t *vertices = mesh_chunk(&state.chunk, &vertex_count, &state.frame_arena);
+
+        glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * vertex_count), vertices,
+                     GL_DYNAMIC_DRAW);
+        state.quad_count = vertex_count / 4;
+
+        state.chunk.is_dirty = false;
+    }
+
+    arena_reset(&state.frame_arena);
 }
 
 static void on_draw(float delta_time) {
