@@ -8,6 +8,7 @@ add_executable(${PROJECT_NAME}
     "src/utils/arena.c"
     "src/utils/direction.c"
     "src/utils/math3d.c"
+    "src/utils/range_allocator.c"
     "src/utils/utils.c"
     "src/world/block_type.c"
     "src/world/camera.c"
