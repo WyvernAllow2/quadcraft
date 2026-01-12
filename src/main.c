@@ -2,12 +2,15 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "render/meshing.h"
 #include "render/texture_array.h"
+#include "utils/range_allocator.h"
 #include "utils/utils.h"
 #include "world/camera.h"
 #include "world/chunk.h"
+#include "world/world.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -97,8 +100,8 @@ struct {
     GLuint ebo;
     GLuint texture_array;
 
-    Chunk chunk;
-    uint32_t quad_count;
+    Range_Allocator mesh_allocator;
+    World world;
 } state;
 
 static void window_size_callback(GLFWwindow *window, int width, int height) {
@@ -132,12 +135,39 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
 
 #define MAX_QUADS ((CHUNK_VOLUME / 2) * 6)
 #define MAX_VERTS (MAX_QUADS * 4)
+#define VERTEX_BUFFER_SIZE (MAX_VERTS * 1000)
+
+static Block_Type generate_block(iVec3 position) {
+    if (position.y < 100) {
+        return BLOCK_DIRT;
+    } else if (position.y == 100) {
+        return BLOCK_GRASS;
+    } else {
+        return BLOCK_AIR;
+    }
+}
+
+static void generate_chunk(Chunk *chunk, iVec3 chunk_coord) {
+    iVec3 world_offset = ivec3_scale(chunk_coord, CHUNK_SIZE);
+
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                iVec3 local_position = {x, y, z};
+                iVec3 world_position = ivec3_add(world_offset, local_position);
+
+                Block_Type type = generate_block(world_position);
+                chunk_set_block_unsafe(chunk, local_position, type);
+            }
+        }
+    }
+}
 
 static bool on_init(void) {
     Arena init_arena;
     arena_create(&init_arena, MIB_TO_BYTES(10));
 
-    arena_create(&state.frame_arena, MIB_TO_BYTES(10));
+    arena_create(&state.frame_arena, MIB_TO_BYTES(50));
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -193,6 +223,7 @@ static bool on_init(void) {
         .znear = 0.001f,
         .zfar = 1000.0f,
         .yaw = -to_radians(90.0f),
+        .position.y = 200,
     };
 
     state.camera_speed = DEFAULT_CAMERA_SPEED;
@@ -208,23 +239,17 @@ static bool on_init(void) {
         return false;
     }
 
-    for (int z = 0; z < CHUNK_SIZE; z++) {
-        for (int y = 0; y < CHUNK_SIZE; y++) {
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                Block_Type type = BLOCK_DIRT;
-                if (y > 8) {
-                    type = BLOCK_AIR;
-                } else if (y == 8) {
-                    type = BLOCK_GRASS;
-                }
-
-                iVec3 pos = {x, y, z};
-                chunk_set_block_unsafe(&state.chunk, pos, type);
+    for (int z = 0; z < WORLD_SIZE_Z; z++) {
+        for (int y = 0; y < WORLD_SIZE_Y; y++) {
+            for (int x = 0; x < WORLD_SIZE_X; x++) {
+                iVec3 chunk_coord = {x, y, z};
+                Chunk *chunk = world_get_chunk(&state.world, chunk_coord);
+                chunk->coord = chunk_coord;
+                generate_chunk(chunk, chunk_coord);
+                world_push_dirty_chunk(&state.world, chunk);
             }
         }
     }
-
-    state.chunk.is_dirty = true;
 
     uint32_t index_count = 0;
     uint32_t *indices = generate_index_buffer(&index_count, &init_arena);
@@ -236,7 +261,8 @@ static bool on_init(void) {
     glBindVertexArray(state.vao);
 
     glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * MAX_VERTS), NULL, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * VERTEX_BUFFER_SIZE), NULL,
+                 GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * index_count), indices,
@@ -246,6 +272,7 @@ static bool on_init(void) {
     glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), NULL);
 
     state.texture_array = load_texture_array();
+    range_allocator_create(&state.mesh_allocator, VERTEX_BUFFER_SIZE);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -262,6 +289,21 @@ static void on_quit(void) {
 
     glfwDestroyWindow(state.window);
     glfwTerminate();
+}
+
+static void get_meshing_data(const Chunk *chunk, Meshing_Data *data) {
+    iVec3 base_pos = ivec3_sub(ivec3_scale(chunk->coord, CHUNK_SIZE), (iVec3){1, 1, 1});
+
+    for (int z = 0; z < MESHING_DATA_SIZE; ++z) {
+        for (int y = 0; y < MESHING_DATA_SIZE; ++y) {
+            for (int x = 0; x < MESHING_DATA_SIZE; ++x) {
+                int mesh_index = (x) + MESHING_DATA_SIZE * ((y) + MESHING_DATA_SIZE * (z));
+
+                data->blocks[mesh_index] =
+                    world_get_block(&state.world, ivec3_add(base_pos, (iVec3){x, y, z}));
+            }
+        }
+    }
 }
 
 static void on_update(float delta_time) {
@@ -293,23 +335,44 @@ static void on_update(float delta_time) {
     };
 
     if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_LEFT)) {
-        chunk_set_block(&state.chunk, place_pos, BLOCK_AIR);
+        world_set_block(&state.world, place_pos, BLOCK_AIR);
     }
 
     if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_RIGHT)) {
-        chunk_set_block(&state.chunk, place_pos, BLOCK_DIRT);
+        world_set_block(&state.world, place_pos, BLOCK_DIRT);
     }
 
-    if (state.chunk.is_dirty) {
-        uint32_t vertex_count;
-        uint32_t *vertices = mesh_chunk(&state.chunk, &vertex_count, &state.frame_arena);
+    glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
 
-        glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
-        glBufferData(GL_ARRAY_BUFFER, (GLsizei)(sizeof(uint32_t) * vertex_count), vertices,
-                     GL_DYNAMIC_DRAW);
-        state.quad_count = vertex_count / 4;
+    iVec3 player_position = {
+        (int)state.camera.position.x,
+        (int)state.camera.position.y,
+        (int)state.camera.position.z,
+    };
 
-        state.chunk.is_dirty = false;
+    player_position = ivec3_floor_div(player_position, CHUNK_SIZE);
+
+    for (size_t i = 0; i < 3; i++) {
+        Chunk *next_dirty = world_pop_dirty_chunk(&state.world, player_position);
+        if (next_dirty) {
+            Meshing_Data data;
+            get_meshing_data(next_dirty, &data);
+
+            uint32_t vertex_count;
+            uint32_t *vertices = mesh_chunk(&data, &vertex_count, &state.frame_arena);
+            if (vertex_count > 0) {
+                if (next_dirty->mesh.size != 0) {
+                    range_free(&state.mesh_allocator, next_dirty->mesh);
+                }
+
+                next_dirty->mesh = range_alloc(&state.mesh_allocator, vertex_count);
+
+                GLsizei buffer_offset = (GLsizei)(next_dirty->mesh.start * sizeof(uint32_t));
+                GLsizei buffer_size = (GLsizei)(next_dirty->mesh.size * sizeof(uint32_t));
+
+                glBufferSubData(GL_ARRAY_BUFFER, buffer_offset, buffer_size, vertices);
+            }
+        }
     }
 
     arena_reset(&state.frame_arena);
@@ -329,7 +392,22 @@ static void on_draw(float delta_time) {
     glUniform1i(glGetUniformLocation(state.shader, "u_texture_array"), 0);
 
     glBindVertexArray(state.vao);
-    glDrawElements(GL_TRIANGLES, (GLsizei)(state.quad_count * 6), GL_UNSIGNED_INT, 0);
+    GLint position_uniform = glGetUniformLocation(state.shader, "u_position");
+
+    for (int z = 0; z < WORLD_SIZE_Z; z++) {
+        for (int y = 0; y < WORLD_SIZE_Y; y++) {
+            for (int x = 0; x < WORLD_SIZE_X; x++) {
+                Chunk *chunk = world_get_chunk(&state.world, (iVec3){x, y, z});
+
+                Vec3 position = vec3_scale((Vec3){x, y, z}, CHUNK_SIZE);
+                glUniform3fv(position_uniform, 1, (float *)&position);
+
+                GLsizei count = (chunk->mesh.size / 4) * 6;
+                GLsizei base_vertex = (GLsizei)chunk->mesh.start;
+                glDrawElementsBaseVertex(GL_TRIANGLES, count, GL_UNSIGNED_INT, 0, base_vertex);
+            }
+        }
+    }
 
     glfwSwapBuffers(state.window);
 }
