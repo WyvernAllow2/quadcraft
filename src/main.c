@@ -398,6 +398,9 @@ static void on_draw(float delta_time) {
         for (int y = 0; y < WORLD_SIZE_Y; y++) {
             for (int x = 0; x < WORLD_SIZE_X; x++) {
                 Chunk *chunk = world_get_chunk(&state.world, (iVec3){x, y, z});
+                if (chunk->mesh.size == 0) {
+                    continue;
+                }
 
                 Vec3 position = vec3_scale((Vec3){x, y, z}, CHUNK_SIZE);
                 glUniform3fv(position_uniform, 1, (float *)&position);
