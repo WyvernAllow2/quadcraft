@@ -30,6 +30,14 @@ int mod(int a, int b) {
     return r < 0 ? r + b : r;
 }
 
+int floor_div(int a, int b) {
+    int div = a / b;
+    if ((a < 0) && (a % b != 0)) {
+        div--;
+    }
+    return div;
+}
+
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){
         .x = a.x + b.x,
@@ -119,6 +127,14 @@ iVec3 ivec3_mod(iVec3 a, int b) {
         .x = mod(a.x, b),
         .y = mod(a.y, b),
         .z = mod(a.z, b),
+    };
+}
+
+iVec3 ivec3_floor_div(iVec3 v, int s) {
+    return (iVec3){
+        floor_div(v.x, s),
+        floor_div(v.y, s),
+        floor_div(v.z, s),
     };
 }
 
