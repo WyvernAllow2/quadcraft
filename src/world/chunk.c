@@ -33,7 +33,6 @@ void chunk_set_block_unsafe(Chunk *chunk, iVec3 pos, Block_Type new_block) {
     }
 
     chunk->blocks[get_index(pos)] = new_block;
-    chunk->is_dirty = true;
 }
 
 void chunk_set_block(Chunk *chunk, iVec3 pos, Block_Type new_block) {
