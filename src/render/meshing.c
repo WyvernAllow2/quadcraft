@@ -99,8 +99,36 @@ static const iVec3 AO_OFFSETS[DIRECTION_COUNT][4][3] = {
 };
 /* clang-format on */
 
-static uint32_t pack_vertex(uint8_t x, uint8_t y, uint8_t z, uint8_t dir, uint8_t ao,
-                            uint16_t tex) {
+typedef struct Mesher {
+    const Meshing_Data *data;
+    uint32_t *vertices;
+    uint32_t vertex_count;
+} Mesher;
+
+static Block_Type get_block(const Mesher *mesher, iVec3 pos) {
+    int x = pos.x;
+    int y = pos.y;
+    int z = pos.z;
+
+    assert(x >= -1 && x <= CHUNK_SIZE);
+    assert(y >= -1 && y <= CHUNK_SIZE);
+    assert(z >= -1 && z <= CHUNK_SIZE);
+
+    size_t index = (size_t)((x + 1) + MESHING_DATA_SIZE * ((y + 1) + MESHING_DATA_SIZE * (z + 1)));
+
+    return mesher->data->blocks[index];
+}
+
+static bool is_block_transparent(const Mesher *mesher, iVec3 pos) {
+    Block_Type block = get_block(mesher, pos);
+    return get_block_properties(block)->is_transparent;
+}
+
+static bool is_block_opaque(const Mesher *mesher, iVec3 pos) {
+    return !is_block_transparent(mesher, pos);
+}
+
+static void push_vertex(Mesher *mesher, iVec3 pos, Direction dir, Texture_ID tex, uint8_t ao) {
     /* Vertex format:
      *  *-------------------*---------*---------------*------------*
      *  |Data               |  size   | bit range     |  max value |
@@ -120,26 +148,15 @@ static uint32_t pack_vertex(uint8_t x, uint8_t y, uint8_t z, uint8_t dir, uint8_
     assert(tex < 512);
 
     /* clang-format off */
-    return ((uint32_t)x << 26)   |
-           ((uint32_t)y << 20)   |
-           ((uint32_t)z << 14)   |
-           ((uint32_t)dir << 11) |
-           ((uint32_t)ao << 9)   |
-            (uint32_t)tex;
+    uint32_t vert = ((uint32_t)pos.x << 26)   |
+                    ((uint32_t)pos.y << 20)   |
+                    ((uint32_t)pos.z << 14)   |
+                    ((uint32_t)dir << 11) |
+                    ((uint32_t)ao << 9)   |
+                    (uint32_t)tex;
     /* clang-format on */
-}
 
-typedef struct Mesher {
-    uint32_t *vertices;
-    uint32_t vertex_count;
-} Mesher;
-
-static void push_vertex(Mesher *mesher, iVec3 pos, Direction direction, Texture_ID texture,
-                        uint8_t ao) {
     assert(mesher->vertex_count < MAX_VERTS);
-
-    uint32_t vert = pack_vertex(pos.x, pos.y, pos.z, direction, ao, texture);
-
     mesher->vertices[mesher->vertex_count] = vert;
     mesher->vertex_count++;
 }
@@ -152,38 +169,41 @@ static uint8_t vertex_ao(bool side_1, bool side_2, bool corner) {
     return 3 - (side_1 + side_2 + corner);
 }
 
-static void emit_face(Mesher *mesher, const Chunk *chunk, iVec3 pos, Direction direction,
-                      Texture_ID texture) {
+static void push_face(Mesher *mesher, iVec3 pos, Direction dir, Texture_ID tex) {
     for (int i = 0; i < 4; i++) {
-        iVec3 side_1_pos = AO_OFFSETS[direction][i][0];
-        iVec3 side_2_pos = AO_OFFSETS[direction][i][1];
-        iVec3 corner_pos = AO_OFFSETS[direction][i][2];
+        iVec3 side_1_sample = AO_OFFSETS[dir][i][0];
+        iVec3 side_2_sample = AO_OFFSETS[dir][i][1];
+        iVec3 corner_sample = AO_OFFSETS[dir][i][2];
 
-        bool corner_opaque = !chunk_is_block_transparent(chunk, ivec3_add(pos, corner_pos));
-        bool side_1_opaque = !chunk_is_block_transparent(chunk, ivec3_add(pos, side_1_pos));
-        bool side_2_opaque = !chunk_is_block_transparent(chunk, ivec3_add(pos, side_2_pos));
+        bool side_1 = is_block_opaque(mesher, ivec3_add(pos, side_1_sample));
+        bool side_2 = is_block_opaque(mesher, ivec3_add(pos, side_2_sample));
+        bool corner = is_block_opaque(mesher, ivec3_add(pos, corner_sample));
+        uint8_t ao = vertex_ao(side_1, side_2, corner);
 
-        uint8_t ao = vertex_ao(side_1_opaque, side_2_opaque, corner_opaque);
-        push_vertex(mesher, ivec3_add(pos, FACE_VERTICES[direction][i]), direction, texture, ao);
+        iVec3 vertex_pos = ivec3_add(pos, FACE_VERTICES[dir][i]);
+        push_vertex(mesher, vertex_pos, dir, tex, ao);
     }
 }
 
-static void mesh_block(Mesher *mesher, const Chunk *chunk, Block_Type type, iVec3 pos) {
+static void mesh_block(Mesher *mesher, Block_Type type, iVec3 pos) {
     for (Direction dir = 0; dir < DIRECTION_COUNT; dir++) {
         iVec3 neighbor_pos = ivec3_add(pos, direction_to_ivec3(dir));
-        if (chunk_is_block_transparent(chunk, neighbor_pos)) {
+
+        /* The face is exposed if its neighbor is transparent. */
+        if (is_block_transparent(mesher, neighbor_pos)) {
             const Block_Properties *properties = get_block_properties(type);
-            emit_face(mesher, chunk, pos, dir, properties->textures[dir]);
+            push_face(mesher, pos, dir, properties->textures[dir]);
         }
     }
 }
 
-uint32_t *mesh_chunk(const Chunk *chunk, uint32_t *vertex_count, Arena *arena) {
-    assert(chunk != NULL);
+uint32_t *mesh_chunk(const Meshing_Data *data, uint32_t *vertex_count, Arena *arena) {
+    assert(data != NULL);
     assert(vertex_count != NULL);
     assert(arena != NULL);
 
     Mesher mesher = {
+        .data = data,
         .vertex_count = 0,
         .vertices = ARENA_NEW_ARRAY(arena, uint32_t, MAX_VERTS),
     };
@@ -192,10 +212,10 @@ uint32_t *mesh_chunk(const Chunk *chunk, uint32_t *vertex_count, Arena *arena) {
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 iVec3 pos = {x, y, z};
+                Block_Type type = get_block(&mesher, pos);
 
-                Block_Type type = chunk_get_block_unsafe(chunk, pos);
                 if (type != BLOCK_AIR) {
-                    mesh_block(&mesher, chunk, type, pos);
+                    mesh_block(&mesher, type, pos);
                 }
             }
         }
