@@ -13,6 +13,7 @@ add_executable(${PROJECT_NAME}
     "src/world/block_type.c"
     "src/world/camera.c"
     "src/world/chunk.c"
+    "src/world/world.c"
     "src/main.c"
 )
 
