@@ -2,6 +2,7 @@
 layout(location = 0) in uint a_vertex;
 
 uniform mat4 u_view_proj;
+uniform vec3 u_position;
 
 out vec3 v_normal;
 out vec3 v_uv;
@@ -26,7 +27,7 @@ void main() {
     uint ao = (a_vertex >> 9) & 0x3u;
     uint texture_id = a_vertex & 0x1FFu;
 
-    vec3 position = vec3(x, y, z);
+    vec3 position = vec3(x, y, z) + u_position;
     v_normal = NORMAL_TABLE[direction];
     v_uv = vec3(dot(v_normal.xzy, position.zxx), position.y + v_normal.y * position.z, texture_id);
     v_color = clamp(0.2 + vec3(ao / 4.0), 0.0, 1.0);
