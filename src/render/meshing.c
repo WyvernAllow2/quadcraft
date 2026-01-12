@@ -142,7 +142,7 @@ static void push_vertex(Mesher *mesher, iVec3 pos, Direction dir, Texture_ID tex
      *  *-------------------*---------*---------------*------------*
      */
 
-    assert(x < 64 && y < 64 && z < 64);
+    assert(pos.x < 64 && pos.y < 64 && pos.z < 64);
     assert(dir < 8);
     assert(ao < 4);
     assert(tex < 512);
