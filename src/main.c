@@ -360,17 +360,20 @@ static void on_update(float delta_time) {
 
             uint32_t vertex_count;
             uint32_t *vertices = mesh_chunk(&data, &vertex_count, &state.frame_arena);
-            if (vertex_count > 0) {
+            if (vertex_count >= 0) {
                 if (next_dirty->mesh.size != 0) {
                     range_free(&state.mesh_allocator, next_dirty->mesh);
+                    next_dirty->mesh.size = 0;
                 }
 
-                next_dirty->mesh = range_alloc(&state.mesh_allocator, vertex_count);
+                if (vertex_count > 0) {
+                    next_dirty->mesh = range_alloc(&state.mesh_allocator, vertex_count);
 
-                GLsizei buffer_offset = (GLsizei)(next_dirty->mesh.start * sizeof(uint32_t));
-                GLsizei buffer_size = (GLsizei)(next_dirty->mesh.size * sizeof(uint32_t));
+                    GLsizei buffer_offset = (GLsizei)(next_dirty->mesh.start * sizeof(uint32_t));
+                    GLsizei buffer_size = (GLsizei)(next_dirty->mesh.size * sizeof(uint32_t));
 
-                glBufferSubData(GL_ARRAY_BUFFER, buffer_offset, buffer_size, vertices);
+                    glBufferSubData(GL_ARRAY_BUFFER, buffer_offset, buffer_size, vertices);
+                }
             }
         }
     }
