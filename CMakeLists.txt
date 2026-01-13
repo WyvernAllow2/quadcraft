@@ -49,9 +49,13 @@ set(GLFW_INSTALL OFF)
 add_subdirectory(deps/glfw)
 add_subdirectory(deps/glad)
 add_subdirectory(deps/stb_image)
+add_subdirectory(deps/imgui)
+
+target_link_libraries(imgui PRIVATE glfw)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     glad
     stb_image
+    imgui
 )
