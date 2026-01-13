@@ -90,7 +90,7 @@ Block_Type world_get_block(const World *world, iVec3 position) {
 
     iVec3 chunk_coord = ivec3_floor_div(position, CHUNK_SIZE);
     if (!in_world_bounds(chunk_coord)) {
-        return BLOCK_AIR;
+        return BLOCK_DIRT;
     }
 
     const Chunk *chunk = &world->chunk[get_chunk_index(chunk_coord)];

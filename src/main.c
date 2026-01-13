@@ -14,6 +14,9 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <dcimgui.h>
+#include <dcimgui_impl_glfw.h>
+#include <dcimgui_impl_opengl3.h>
 #include <glad/gl.h>
 
 #define DEFAULT_CAMERA_SPEED 16.0f
@@ -93,6 +96,9 @@ struct {
     bool first_mouse;
     float prev_mouse_x;
     float prev_mouse_y;
+    bool cursor_locked;
+
+    Block_Type selected_block;
 
     GLuint shader;
     GLuint vao;
@@ -117,6 +123,10 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
     (void)window;
     assert(window == state.window);
 
+    if (!state.cursor_locked) {
+        return;
+    }
+
     if (state.first_mouse) {
         state.prev_mouse_x = xpos;
         state.prev_mouse_y = ypos;
@@ -131,6 +141,22 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
 
     state.camera.yaw += to_radians(delta_x * state.mouse_sensitivity);
     state.camera.pitch += to_radians(-delta_y * state.mouse_sensitivity);
+}
+
+static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+    (void)window;
+    assert(window == state.window);
+
+    if (key == GLFW_KEY_F3 && action == GLFW_PRESS) {
+        state.cursor_locked = !state.cursor_locked;
+
+        if (state.cursor_locked) {
+            glfwSetInputMode(state.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            state.first_mouse = true;
+        } else {
+            glfwSetInputMode(state.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    }
 }
 
 #define MAX_QUADS ((CHUNK_VOLUME / 2) * 6)
@@ -197,6 +223,7 @@ static bool on_init(void) {
     }
 
     glfwMakeContextCurrent(state.window);
+    glfwSwapInterval(0);
 
     if (!gladLoadGL(glfwGetProcAddress)) {
         fprintf(stderr, "gladLoadGL() failed\n");
@@ -209,6 +236,7 @@ static bool on_init(void) {
     glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, NULL, true);
 
     glfwSetWindowSizeCallback(state.window, window_size_callback);
+    glfwSetKeyCallback(state.window, key_callback);
 
     glfwSetInputMode(state.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetCursorPosCallback(state.window, cursor_pos_callback);
@@ -229,6 +257,9 @@ static bool on_init(void) {
     state.camera_speed = DEFAULT_CAMERA_SPEED;
     state.mouse_sensitivity = DEFAULT_MOUSE_SENSITIVITY;
     state.first_mouse = true;
+    state.cursor_locked = true;
+
+    state.selected_block = BLOCK_DIRT;
 
     camera_update(&state.camera);
 
@@ -238,6 +269,13 @@ static bool on_init(void) {
         fprintf(stderr, "compile_program_from_files() failed\n");
         return false;
     }
+
+    CIMGUI_CHECKVERSION();
+    ImGui_CreateContext(NULL);
+    ImGui_StyleColorsDark(NULL);
+
+    cImGui_ImplGlfw_InitForOpenGL(state.window, true);
+    cImGui_ImplOpenGL3_InitEx("#version 430");
 
     for (int z = 0; z < WORLD_SIZE_Z; z++) {
         for (int y = 0; y < WORLD_SIZE_Y; y++) {
@@ -339,7 +377,7 @@ static void on_update(float delta_time) {
     }
 
     if (glfwGetMouseButton(state.window, GLFW_MOUSE_BUTTON_RIGHT)) {
-        world_set_block(&state.world, place_pos, BLOCK_DIRT);
+        world_set_block(&state.world, place_pos, state.selected_block);
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
@@ -381,22 +419,101 @@ static void on_update(float delta_time) {
     arena_reset(&state.frame_arena);
 }
 
+static void on_draw_imgui(int draw_calls, size_t tri_count) {
+    ImGuiIO *io = ImGui_GetIO();
+
+    cImGui_ImplOpenGL3_NewFrame();
+    cImGui_ImplGlfw_NewFrame();
+    ImGui_NewFrame();
+
+    ImGui_Begin("Blocks", NULL, 0);
+
+    if (ImGui_BeginCombo("Block Types", get_block_properties(state.selected_block)->name, 0)) {
+        for (Block_Type type = BLOCK_DIRT; type < BLOCK_TYPE_COUNT; type++) {
+            bool is_selected = state.selected_block == type;
+            const char *name = get_block_properties(type)->name;
+
+            if (ImGui_SelectableEx(name, is_selected, 0, (ImVec2){200, 30})) {
+                state.selected_block = type;
+            }
+
+            if (is_selected) {
+                ImGui_SetItemDefaultFocus();
+            }
+        }
+
+        ImGui_EndCombo();
+    }
+
+    ImGui_End();
+
+    ImGui_Begin("Statistics", NULL, 0);
+
+    ImGui_Text("Frame Time: %fms", (1.0 / io->Framerate) * 1000.0);
+    ImGui_Text("Draw calls: %i", draw_calls);
+    ImGui_Text("Tri count: %zu", tri_count);
+    ImGui_Text("VRAM Usage: %zu KiB  / %zu KiB", state.mesh_allocator.used / 1024,
+               state.mesh_allocator.capacity / 1024);
+    ImGui_Text("Pending dirty chunks: %zu", state.world.dirty_list_count);
+
+    ImGui_End();
+
+    ImGui_Render();
+
+    glDisable(GL_FRAMEBUFFER_SRGB);
+    cImGui_ImplOpenGL3_RenderDrawData(ImGui_GetDrawData());
+    glEnable(GL_FRAMEBUFFER_SRGB);
+}
+
+static void uniform_mat4(GLuint shader, const char *location, const Mat4 *value) {
+    GLint loc = glGetUniformLocation(shader, location);
+    glUniformMatrix4fv(loc, 1, GL_FALSE, value->data);
+}
+
+static void uniform_vec3(GLuint shader, const char *location, Vec3 value) {
+    GLint loc = glGetUniformLocation(shader, location);
+    glUniform3f(loc, value.x, value.y, value.z);
+}
+
+static void uniform_float(GLuint shader, const char *location, float value) {
+    GLint loc = glGetUniformLocation(shader, location);
+    glUniform1f(loc, value);
+}
+
+static void uniform_int(GLuint shader, const char *location, int value) {
+    GLint loc = glGetUniformLocation(shader, location);
+    glUniform1i(loc, value);
+}
+
 static void on_draw(float delta_time) {
     (void)delta_time;
-    glClearColor(0.2, 0.2, 0.2, 1.0);
+
+    Vec3 sky_color = {0.7, 0.7, 0.9};
+
+    glClearColor(sky_color.x, sky_color.y, sky_color.z, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(state.shader);
-    glUniformMatrix4fv(glGetUniformLocation(state.shader, "u_view_proj"), 1, GL_FALSE,
-                       state.camera.view_proj.data);
+    uniform_mat4(state.shader, "u_view_proj", &state.camera.view_proj);
+    uniform_vec3(state.shader, "u_camera_position", state.camera.position);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, state.texture_array);
-    glUniform1i(glGetUniformLocation(state.shader, "u_texture_array"), 0);
+    uniform_int(state.shader, "u_texture_array", 0);
+
+    /* Lighting uniforms */
+    uniform_vec3(state.shader, "u_sun_direction", (Vec3){0.5, 1.0, 0.5});
+    uniform_vec3(state.shader, "u_sun_color", (Vec3){0.9, 0.8, 0.7});
+    uniform_vec3(state.shader, "u_ambient_color", sky_color);
+
+    uniform_float(state.shader, "u_ambient_strength", 0.4f);
+    uniform_float(state.shader, "u_fog_end", 500.0f);
+    uniform_float(state.shader, "u_fog_density", 0.13f);
 
     glBindVertexArray(state.vao);
-    GLint position_uniform = glGetUniformLocation(state.shader, "u_position");
 
+    int draw_calls = 0;
+    size_t tri_count = 0;
     for (int z = 0; z < WORLD_SIZE_Z; z++) {
         for (int y = 0; y < WORLD_SIZE_Y; y++) {
             for (int x = 0; x < WORLD_SIZE_X; x++) {
@@ -406,14 +523,20 @@ static void on_draw(float delta_time) {
                 }
 
                 Vec3 position = vec3_scale((Vec3){x, y, z}, CHUNK_SIZE);
-                glUniform3fv(position_uniform, 1, (float *)&position);
+                uniform_vec3(state.shader, "u_position", position);
+
+                size_t quad_count = chunk->mesh.size / 4;
 
                 GLsizei count = (chunk->mesh.size / 4) * 6;
                 GLsizei base_vertex = (GLsizei)chunk->mesh.start;
                 glDrawElementsBaseVertex(GL_TRIANGLES, count, GL_UNSIGNED_INT, 0, base_vertex);
+                draw_calls++;
+                tri_count += quad_count * 2;
             }
         }
     }
+
+    on_draw_imgui(draw_calls, tri_count);
 
     glfwSwapBuffers(state.window);
 }

@@ -17,6 +17,7 @@ typedef enum Block_Type {
 typedef struct Block_Properties {
     bool is_transparent;
     Texture_ID textures[DIRECTION_COUNT];
+    const char *name;
 } Block_Properties;
 
 const Block_Properties *get_block_properties(Block_Type type);

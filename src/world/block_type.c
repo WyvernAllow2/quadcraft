@@ -9,14 +9,17 @@
 static const Block_Properties BLOCK_PROPERTY_TABLE[BLOCK_TYPE_COUNT] = {
     [BLOCK_AIR] = {
         .is_transparent = true,
+        .name = "air",
     },
     [BLOCK_DIRT] = {
         .is_transparent = false,
         .textures = TEX_UNIFORM(TEXTURE_ID_DIRT),
+        .name = "dirt",
     },
     [BLOCK_GRASS] = {
         .is_transparent = false,
         .textures = TEX_SIDE_TOP_BOTTOM(TEXTURE_ID_GRASS_SIDE, TEXTURE_ID_GRASS_TOP, TEXTURE_ID_DIRT),
+        .name = "grass",
     },
 };
 /* clang-format on */
